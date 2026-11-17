@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "Zoe",
+    "slug": "zoe",
+    "scheme": "zoe",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "../../assets/brand/zoe-mark-transparent.png",
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 28,
+            "buildArchs": [
+              "arm64-v8a",
+              "x86_64"
+            ]
+          }
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F7F2E9",
+          "image": "../../assets/brand/zoe-mark-transparent.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-sqlite",
+        {
+          "useSQLCipher": true,
+          "enableFTS": true
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Choose a prescription image to review locally in Zoe.",
+          "cameraPermission": "Take a prescription photo to review locally in Zoe."
+        }
+      ]
+    ],
+    "experiments": {
+      "autolinkingModuleResolution": true
+    },
+    "android": {
+      "package": "app.zoe.health",
+      "softwareKeyboardLayoutMode": "resize",
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "../../assets/brand/zoe-mark-transparent.png",
+        "backgroundColor": "#F7F2E9"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "../../assets/brand/zoe-mark-transparent.png"
+    },
+    "extra": {
+      "privacyMode": "synthetic-demo-only",
+      "eas": {
+        "projectId": "c6de10ab-0bff-457b-8d3f-d01a32c222d0"
+      }
+    },
+    "owner": "siren99"
+  }
+}

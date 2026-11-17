@@ -1,0 +1,30 @@
+{
+  "name": "zoe",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.20.0",
+  "react-native-executorch": {
+    "features": ["ocr", "llm"]
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "modules/*",
+    "tests/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "check": "npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@playwright/test": "1.64.1",
+    "turbo": "^2.6.1",
+    "typescript": "~6.0.3",
+    "vitest": "^4.0.13"
+  }
+}
