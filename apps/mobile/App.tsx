@@ -27,6 +27,7 @@ import { UnlockRateLimiter, validateNewPassphrase } from "./src/platform/vaultPo
 import { recordsForOpenedVault } from "./src/platform/recordBootstrap";
 import { lockThenClear, migrationBackAction, migrationRequiresCompletion } from "./src/platform/appLifecycle";
 import { useOfflineSpeechComposer } from "./src/platform/useOfflineSpeechComposer";
+import { homePresentation, maskAccountEmail } from "./src/platform/patientPresentation";
 
 type Screen = "home" | "records" | "ask" | "wellness";
 type AccessState = "intro" | "login" | "passphrase" | "migration" | "unlocking" | "ready";
@@ -87,7 +88,7 @@ function Field({ label, value, onChangeText, placeholder, multiline = false, sec
   );
 }
 
-function PassphraseAccess({ accountId, setup, error, onSubmit, onCancel, cancelLabel = "Back" }: { accountId: string; setup: boolean; error: string; onSubmit: (passphrase: string) => void; onCancel: () => void; cancelLabel?: string }) {
+function PassphraseAccess({ accountId, accountHint, setup, error, onSubmit, onCancel, cancelLabel = "Back" }: { accountId: string; accountHint?: string | undefined; setup: boolean; error: string; onSubmit: (passphrase: string) => void; onCancel: () => void; cancelLabel?: string }) {
   const [passphrase, setPassphrase] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [localError, setLocalError] = useState("");
@@ -116,7 +117,7 @@ function PassphraseAccess({ accountId, setup, error, onSubmit, onCancel, cancelL
   return <SafeAreaView style={styles.accessPage}><View style={styles.loginCard}>
     <Text style={styles.contextLabel}>{setup ? "New device-bound vault" : "Private vault"}</Text>
     <Text style={styles.sectionTitle}>{setup ? "Create a strong passphrase" : "Enter your vault passphrase"}</Text>
-    <Text style={styles.supporting}>{setup ? "Zoe combines this passphrase with a random account-specific secret held by Android Keystore. The passphrase alone cannot open a copied database." : "Unlock your private vault. The passphrase is processed only on this device."}</Text>
+    <Text style={styles.supporting}>{setup ? "Zoe combines this passphrase with a random account-specific secret held by Android Keystore. The passphrase alone cannot open a copied database." : accountHint ? `Unlock the private vault for ${accountHint}. The passphrase is processed only on this device.` : "Unlock your private vault. The passphrase is processed only on this device."}</Text>
     <Field label="Vault passphrase" value={passphrase} onChangeText={setPassphrase} secureTextEntry placeholder={setup ? "16+ varied characters or 4 unrelated words" : "Your vault passphrase"} />
     {setup ? <Field label="Confirm vault passphrase" value={confirmation} onChangeText={setConfirmation} secureTextEntry placeholder="Enter it again" /> : null}
     <View style={styles.notice}><Text style={styles.cardTitle}>No recovery</Text><Text style={styles.cardCopy}>Zoe never uploads this passphrase or vault key. Uninstalling the app, clearing its storage, losing the Keystore secret, or forgetting the passphrase makes this local vault unrecoverable.</Text></View>
@@ -209,11 +210,12 @@ function Header({ title, subtitle }: { title: string; subtitle?: string }) {
   );
 }
 
-function Home({ records, setScreen, vaultMode }: { records: PatientRecord[]; setScreen: (screen: Screen) => void; vaultMode: Vault["mode"] }) {
+function Home({ records, setScreen, vaultMode, syntheticPreview }: { records: PatientRecord[]; setScreen: (screen: Screen) => void; vaultMode: Vault["mode"]; syntheticPreview: boolean }) {
   const confirmed = records.filter((record) => record.status === "confirmed");
+  const presentation = homePresentation(syntheticPreview, confirmed.length);
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Header title="Good morning, Mira" subtitle="Your synthetic demo record is ready." />
+      <Header title={presentation.title} subtitle={presentation.subtitle} />
       <View style={styles.privacyBanner}>
         <View style={styles.bannerIcon}><AppIcon name="shield" size={21} color={colors.ink} /></View>
         <View style={styles.flex}>
@@ -613,13 +615,13 @@ export default function App() {
     if (screen === "records") return <Records records={records} onSave={saveRecord} />;
     if (screen === "ask") return <Ask records={records} />;
     if (screen === "wellness") return <Wellness />;
-    return <Home records={records} setScreen={setScreen} vaultMode={vault?.mode ?? "web-preview"} />;
-  }, [records, screen, vault]);
+    return <Home records={records} setScreen={setScreen} vaultMode={vault?.mode ?? "web-preview"} syntheticPreview={!cloudSession} />;
+  }, [cloudSession, records, screen, vault]);
 
   if (access === "intro") return <><StatusBar style="dark" /><Intro onDone={() => setAccess("login")} /></>;
   if (access === "login") return <><StatusBar style="dark" /><Login onPreview={() => void unlock("synthetic-patient-a")} onCloud={(session) => void unlock(session.userId, session)} error={error} /></>;
-  if (access === "passphrase" && pendingAccess) return <><StatusBar style="dark" /><PassphraseAccess accountId={pendingAccess.accountId} setup={pendingAccess.setup} error={error} onSubmit={(passphrase) => void unlock(pendingAccess.accountId, pendingAccess.session, { passphrase, setupPassphrase: pendingAccess.setup })} onCancel={() => { setPendingAccess(null); setError(""); setAccess("login"); }} /></>;
-  if (access === "migration") return <><StatusBar style="dark" /><PassphraseAccess accountId={userId} setup={!migrationRecoveryRequired} error={error} onSubmit={(passphrase) => void migrateVault(passphrase)} cancelLabel={migrationRecoveryRequired ? "Lock vault" : "Back"} onCancel={() => {
+  if (access === "passphrase" && pendingAccess) return <><StatusBar style="dark" /><PassphraseAccess accountId={pendingAccess.accountId} accountHint={pendingAccess.session ? maskAccountEmail(pendingAccess.session.email) : undefined} setup={pendingAccess.setup} error={error} onSubmit={(passphrase) => void unlock(pendingAccess.accountId, pendingAccess.session, { passphrase, setupPassphrase: pendingAccess.setup })} onCancel={() => { setPendingAccess(null); setError(""); setAccess("login"); }} /></>;
+  if (access === "migration") return <><StatusBar style="dark" /><PassphraseAccess accountId={userId} accountHint={cloudSession ? maskAccountEmail(cloudSession.email) : undefined} setup={!migrationRecoveryRequired} error={error} onSubmit={(passphrase) => void migrateVault(passphrase)} cancelLabel={migrationRecoveryRequired ? "Lock vault" : "Back"} onCancel={() => {
     if (migrationBackAction(migrationRecoveryRequired) === "sign-out") { void signOut(); return; }
     setError("");
     setAccess("ready");
@@ -628,7 +630,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.shell}>
       <StatusBar style="dark" />
-      <View style={styles.sessionBar}><Text numberOfLines={1} style={styles.sessionLabel}>{cloudSession ? "Signed in" : "Synthetic preview"}</Text><View style={styles.sessionActions}>{vault?.protection === "biometric" ? <Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => { setError(""); setMigrationRecoveryRequired(false); setAccess("migration"); }}><Text style={styles.lockText}>Use passphrase</Text></Pressable> : null}<Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => void signOut()}><AppIcon name="lock" size={15} color={colors.ink} /><Text style={styles.lockText}>Lock vault</Text></Pressable></View></View>
+      <View style={styles.sessionBar}><Text numberOfLines={1} style={styles.sessionLabel}>{cloudSession ? `Signed in · ${maskAccountEmail(cloudSession.email)}` : "Synthetic preview"}</Text><View style={styles.sessionActions}>{vault?.protection === "biometric" ? <Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => { setError(""); setMigrationRecoveryRequired(false); setAccess("migration"); }}><Text style={styles.lockText}>Use passphrase</Text></Pressable> : null}<Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => void signOut()}><AppIcon name="lock" size={15} color={colors.ink} /><Text style={styles.lockText}>Lock vault</Text></Pressable></View></View>
       <View style={styles.appFrame}>
         {expanded ? <Navigation screen={screen} setScreen={setScreen} expanded /> : null}
         <View style={styles.content}>{body}</View>

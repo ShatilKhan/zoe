@@ -17,7 +17,7 @@ export default defineConfig({
   },
   webServer: {
     name: "mobile",
-    command: "npm run build && npm exec expo -- serve --port 8083",
+    command: "EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=synthetic-test-key npm run build && npm exec expo -- serve --port 8083",
     cwd: "../../apps/mobile",
     url: "http://127.0.0.1:8083",
     reuseExistingServer: false,
