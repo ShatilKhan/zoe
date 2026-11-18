@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "packageManager": "npm@11.20.0",
-  "react-native-executorch": {
-    "features": ["ocr", "llm"]
-  },
   "workspaces": [
     "apps/*",
     "packages/*",
@@ -13,6 +10,7 @@
     "tests/*"
   ],
   "scripts": {
+    "postinstall": "patch-package --error-on-fail",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
@@ -21,8 +19,9 @@
     "check": "npm run typecheck && npm run test && npm run build"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
     "@playwright/test": "1.64.1",
+    "@types/node": "^24.10.1",
+    "patch-package": "^8.0.1",
     "turbo": "^2.6.1",
     "typescript": "~6.0.3",
     "vitest": "^4.0.13"

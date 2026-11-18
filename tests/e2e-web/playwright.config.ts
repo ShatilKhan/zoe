@@ -9,27 +9,18 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     baseURL: "http://127.0.0.1:8083",
-    channel: "chrome",
+    browserName: "firefox",
     viewport: { width: 430, height: 932 },
+    reducedMotion: "reduce",
     trace: "retain-on-failure",
     screenshot: "only-on-failure"
   },
-  webServer: [
-    {
-      name: "mobile",
-      command: "npm run build -w @zoe/mobile && npm exec vite -- apps/mobile/dist --host 127.0.0.1 --port 8083",
-      cwd: "../..",
-      url: "http://127.0.0.1:8083",
-      reuseExistingServer: false,
-      timeout: 90_000
-    },
-    {
-      name: "clinician",
-      command: "npm run build -w @zoe/clinician-web && npm exec vite -- apps/clinician-web/dist --host 127.0.0.1 --port 4173",
-      cwd: "../..",
-      url: "http://127.0.0.1:4173",
-      reuseExistingServer: false,
-      timeout: 90_000
-    }
-  ]
+  webServer: {
+    name: "mobile",
+    command: "npm run build && npm exec expo -- serve --port 8083",
+    cwd: "../../apps/mobile",
+    url: "http://127.0.0.1:8083",
+    reuseExistingServer: false,
+    timeout: 90_000
+  }
 });

@@ -6,4 +6,21 @@ plugins {
 group = 'app.zoe'
 version = '0.1.0'
 
-android { namespace "expo.modules.presagesensor" }
+def presageApiKey = providers.environmentVariable('PRESAGE_API_KEY')
+  .orElse(providers.gradleProperty('ZOE_PRESAGE_API_KEY'))
+  .getOrElse('')
+def escapedPresageApiKey = presageApiKey.replace('\\', '\\\\').replace('"', '\\"')
+
+android {
+  namespace "expo.modules.presagesensor"
+  buildFeatures { buildConfig true }
+  defaultConfig {
+    buildConfigField 'String', 'PRESAGE_API_KEY', "\"${escapedPresageApiKey}\""
+  }
+}
+
+dependencies {
+  implementation 'com.presagetech:smartspectra:3.5.0'
+  implementation 'androidx.lifecycle:lifecycle-livedata-core:2.10.0'
+  testImplementation 'junit:junit:4.13.2'
+}

@@ -1,5 +1,0 @@
-{
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "rootDir": "../..", "types": ["node", "vitest/globals"], "noEmit": true, "allowImportingTsExtensions": true },
-  "include": ["./**/*.ts", "../../supabase/functions/download-share/policy.ts", "../../supabase/functions/download-share/handler.ts"]
-}

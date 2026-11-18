@@ -1,0 +1,472 @@
+diff --git a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/DelayedFileStreamer.kt b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/DelayedFileStreamer.kt
+index bbd107b..15c346a 100644
+--- a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/DelayedFileStreamer.kt
++++ b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/DelayedFileStreamer.kt
+@@ -58,13 +58,11 @@ class DelayedFileStreamer {
+                     delay(delayMillis)
+                     outputStream.write(buffer, 0, bytesRead)
+                 }
+-            } catch (e: IOException) {
+-                e.printStackTrace()
++            } catch (_: IOException) {
+             } finally {
+                 try {
+                     outputStream.close()
+-                } catch (e: IOException) {
+-                    e.printStackTrace()
++                } catch (_: IOException) {
+                 }
+             }
+         }
+@@ -146,8 +144,7 @@ class DelayedFileStreamer {
+                                 // outputStream.flush()
+                                 // cacheOutputStream?.write(chunk)
+                                 // cacheOutputStream?.flush()
+-                            } catch (e: IOException) {
+-                                e.printStackTrace()
++                            } catch (_: IOException) {
+                             }
+                         }
+                     }
+@@ -174,8 +171,7 @@ class DelayedFileStreamer {
+ 
+             // // Playback the cached file
+             // playbackCachedFile(cacheFile, sampleRate, audioFormat)
+-        } catch (e: IOException) {
+-            e.printStackTrace()
++        } catch (_: IOException) {
+         } finally {
+             outputStream.close()
+             // cacheOutputStream?.close()
+@@ -188,8 +184,7 @@ class DelayedFileStreamer {
+     fun close() {
+         try {
+             pfd.close()
+-        } catch (e: IOException) {
+-            e.printStackTrace()
++        } catch (_: IOException) {
+         }
+     }
+     /*
+@@ -217,7 +212,7 @@ class DelayedFileStreamer {
+ 
+         val buffer = ByteArray(bufferSize)
+ 
+-        Log.d("ExpoSpeechService", "file path: ${file.absolutePath}")
++        Log.d("ExpoSpeechService", "Local audio stream prepared.")
+         FileInputStream(file).use { fileInputStream ->
+             audioTrack.play()
+             var bytesRead: Int
+diff --git a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoAudioRecorder.kt b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoAudioRecorder.kt
+index ae17503..b3ad0a0 100644
+--- a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoAudioRecorder.kt
++++ b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoAudioRecorder.kt
+@@ -51,8 +51,7 @@ class ExpoAudioRecorder(
+             recordingParcel = pipe[0]
+             outputStream = AutoCloseOutputStream(pipe[1])
+         } catch (e: IOException) {
+-            Log.e(TAG, "Failed to create pipe", e)
+-            e.printStackTrace()
++            Log.e(TAG, "Failed to create audio pipe")
+             throw e
+         }
+     }
+@@ -113,9 +112,8 @@ class ExpoAudioRecorder(
+                     val pcmData = pcmFile.readBytes()
+                     out.write(pcmData)
+                     pcmFile.delete()
+-                } catch (e: IOException) {
+-                    Log.e(TAG, "Failed to read PCM file", e)
+-                    e.printStackTrace()
++                } catch (_: IOException) {
++                    Log.e(TAG, "Failed to read temporary audio data")
+                 }
+             }
+ 
+@@ -128,8 +126,8 @@ class ExpoAudioRecorder(
+         if (!file.exists()) {
+             try {
+                 file.createNewFile()
+-            } catch (e: IOException) {
+-                e.printStackTrace()
++            } catch (_: IOException) {
++                Log.e(TAG, "Failed to create temporary audio file")
+             }
+         }
+         return file
+@@ -180,23 +178,22 @@ class ExpoAudioRecorder(
+                         tempPcmFile,
+                         sampleRateInHz,
+                     )
+-            } catch (e: IOException) {
+-                Log.e(TAG, "Failed to append WAV header", e)
+-                e.printStackTrace()
++            } catch (_: IOException) {
++                Log.e(TAG, "Failed to append audio header")
+             }
+         }
+         // Close the ParcelFileDescriptor
+         try {
+             recordingParcel.close()
+-        } catch (e: IOException) {
+-            e.printStackTrace()
++        } catch (_: IOException) {
++            Log.e(TAG, "Failed to close audio descriptor")
+         }
+         // And the output stream
+         try {
+             outputStream?.close()
+             outputStream = null
+-        } catch (e: IOException) {
+-            e.printStackTrace()
++        } catch (_: IOException) {
++            Log.e(TAG, "Failed to close audio stream")
+         }
+     }
+ 
+@@ -226,9 +223,8 @@ class ExpoAudioRecorder(
+                             tempFileOutputStream.write(data, 0, read)
+                             tempFileOutputStream.flush()
+                         }
+-                    } catch (e: IOException) {
+-                        Log.e(TAG, "Failed to write to output stream", e)
+-                        e.printStackTrace()
++                    } catch (_: IOException) {
++                        Log.e(TAG, "Failed to write temporary audio data")
+                     }
+                 }
+ 
+diff --git a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechRecognitionModule.kt b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechRecognitionModule.kt
+index 25786d5..4c12e1a 100644
+--- a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechRecognitionModule.kt
++++ b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechRecognitionModule.kt
+@@ -34,10 +34,10 @@ class ExpoSpeechRecognitionModule : Module() {
+             val nonNullBody = body ?: emptyMap()
+             try {
+                 sendEvent(name, nonNullBody)
+-            } catch (e: IllegalArgumentException) {
++            } catch (_: IllegalArgumentException) {
+                 // "Cannot create an event emitter for the module that isn't present in the module registry."
+                 // Likely can occur after destroying the module
+-                Log.e(TAG, "Failed to send event: $name", e)
++                Log.e(TAG, "Failed to send speech recognition event")
+             }
+         }
+     }
+@@ -205,11 +205,9 @@ class ExpoSpeechRecognitionModule : Module() {
+             /** Start recognition with args: lang, interimResults, maxAlternatives */
+             Function("start") { options: SpeechRecognitionOptions ->
+                 if (hasNotGrantedRecordPermissions()) {
+-                    sendEvent("error", mapOf("error" to "not-allowed", "message" to "Missing RECORD_AUDIO permissions.", "code" to -1))
+-                    sendEvent("end")
+-                    return@Function
++                    return@Function -1L
+                 }
+-                expoSpeechService.start(options)
++                return@Function expoSpeechService.start(options)
+             }
+ 
+             Function("stop") {
+@@ -217,8 +215,9 @@ class ExpoSpeechRecognitionModule : Module() {
+             }
+ 
+             Function("abort") {
+-                sendEvent("error", mapOf("error" to "aborted", "message" to "Speech recognition aborted.", "code" to -1))
+-                expoSpeechService.abort()
++                expoSpeechService.abort()?.let { sessionId ->
++                    sendEvent("error", mapOf("error" to "aborted", "message" to "Speech recognition aborted.", "code" to -1, "sessionId" to sessionId))
++                }
+             }
+ 
+             AsyncFunction("getSupportedLocales") { options: GetSupportedLocaleOptions, promise: Promise ->
+diff --git a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
+index 4a0604a..1603130 100644
+--- a/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
++++ b/node_modules/expo-speech-recognition/android/src/main/java/expo/modules/speechrecognition/ExpoSpeechService.kt
+@@ -19,6 +19,7 @@ import android.util.Log
+ import java.io.File
+ import java.net.URI
+ import java.util.Locale
++import java.util.concurrent.atomic.AtomicLong
+ 
+ data class SpeechRecognitionErrorEvent(
+     val error: String,
+@@ -45,7 +46,7 @@ enum class SoundState {
+ 
+ class ExpoSpeechService(
+     private val reactContext: Context,
+-    private var sendEvent: (name: String, body: Map<String, Any?>?) -> Unit,
++    private var emitNativeEvent: (name: String, body: Map<String, Any?>?) -> Unit,
+ ) : RecognitionListener {
+     private var speech: SpeechRecognizer? = null
+     private val mainHandler = Handler(Looper.getMainLooper())
+@@ -62,9 +63,22 @@ class ExpoSpeechService(
+ 
+     private var lastDetectedLanguage: String? = null
+     private var lastLanguageConfidence: Float? = null
++    private val sessionCounter = AtomicLong(0L)
++
++    @Volatile
++    private var activeSessionId: Long? = null
+ 
+     var recognitionState = RecognitionState.INACTIVE
+ 
++    private fun sendEvent(
++        name: String,
++        body: Map<String, Any?>?,
++        sessionId: Long? = activeSessionId,
++    ) {
++        if (sessionId == null) return
++        emitNativeEvent(name, (body ?: emptyMap()) + ("sessionId" to sessionId))
++    }
++
+     companion object {
+         @SuppressLint("QueryPermissionsNeeded")
+         fun findComponentNameByPackageName(
+@@ -113,9 +127,11 @@ class ExpoSpeechService(
+     }
+ 
+     /** Starts speech recognition */
+-    fun start(options: SpeechRecognitionOptions) {
+-        this.options = options
++    fun start(options: SpeechRecognitionOptions): Long {
++        val sessionId = sessionCounter.incrementAndGet()
++        activeSessionId = sessionId
+         mainHandler.post {
++            if (activeSessionId != sessionId) return@post
+             log("Start recognition.")
+ 
+             // Destroy any previous SpeechRecognizer / audio recorder
+@@ -131,6 +147,7 @@ class ExpoSpeechService(
+             delayedFileStreamer = null
+             lastDetectedLanguage = null
+             lastLanguageConfidence = null
++            this.options = options
+             recognitionState = RecognitionState.STARTING
+             soundState = SoundState.INACTIVE
+             lastVolumeChangeEventTime = 0L
+@@ -146,7 +163,7 @@ class ExpoSpeechService(
+                     }
+ 
+                 // Start listening
+-                speech?.setRecognitionListener(this)
++                speech?.setRecognitionListener(listenerFor(sessionId))
+                 speech?.startListening(intent)
+ 
+                 delayedFileStreamer?.startStreaming()
+@@ -165,18 +182,18 @@ class ExpoSpeechService(
+                         e.message != null -> e.message
+                         else -> "Unknown error"
+                     }
+-                e.printStackTrace()
+-                log("Failed to create Speech Recognizer with error: $errorMessage")
++                log("Failed to create Speech Recognizer.")
+                 sendEvent("error", mapOf("error" to "audio-capture", "message" to errorMessage, "code" to -1))
+-                teardownAndEnd()
++                teardownAndEnd(sessionId = sessionId)
+             }
+         }
++        return sessionId
+     }
+ 
+     /**
+      * Stops the audio recorder and sends the recorded audio file path to the app.
+      */
+-    private fun stopRecording() {
++    private fun stopRecording(sessionId: Long? = activeSessionId) {
+         audioRecorder?.stop()
+         val timestamp = audioRecorder?.stoppedAtMillis ?: System.currentTimeMillis()
+         if (audioRecorder?.outputFile != null) {
+@@ -187,6 +204,7 @@ class ExpoSpeechService(
+                     "uri" to uri,
+                     "timestamp" to timestamp,
+                 ),
++                sessionId,
+             )
+         } else {
+             sendEvent(
+@@ -195,6 +213,7 @@ class ExpoSpeechService(
+                     "uri" to null,
+                     "timestamp" to timestamp,
+                 ),
++                sessionId,
+             )
+         }
+         audioRecorder = null
+@@ -205,7 +224,9 @@ class ExpoSpeechService(
+      * Attempts to emit a final result if the speech recognizer is still running.
+      */
+     fun stop() {
++        val sessionId = activeSessionId ?: return
+         mainHandler.post {
++            if (activeSessionId != sessionId) return@post
+             recognitionState = RecognitionState.STOPPING
+             try {
+                 speech?.stopListening()
+@@ -222,8 +243,10 @@ class ExpoSpeechService(
+      * This is different from `stop` in that the recognition task is immediately cancelled and no
+      * final result is emitted.
+      */
+-    fun abort() {
+-        teardownAndEnd()
++    fun abort(): Long? {
++        val sessionId = activeSessionId ?: return null
++        teardownAndEnd(sessionId = sessionId)
++        return sessionId
+     }
+ 
+     /**
+@@ -231,16 +254,27 @@ class ExpoSpeechService(
+      */
+     fun destroy() {
+         // Overwrite sendEvent to prevent sending events after destroy
+-        sendEvent = { _, _ -> }
+-        teardownAndEnd()
++        emitNativeEvent = { _, _ -> }
++        abort()
+     }
+ 
+     /**
+      * Stops speech recognition, recording and updates state
+      */
+-    private fun teardownAndEnd(state: RecognitionState = RecognitionState.INACTIVE) {
+-        recognitionState = RecognitionState.STOPPING
++    private fun teardownAndEnd(
++        state: RecognitionState = RecognitionState.INACTIVE,
++        sessionId: Long? = activeSessionId,
++    ) {
++        if (sessionId == null) return
++        if (activeSessionId == sessionId) {
++            activeSessionId = null
++            recognitionState = RecognitionState.STOPPING
++        }
+         mainHandler.post {
++            if (activeSessionId != null && activeSessionId != sessionId) {
++                sendEvent("end", null, sessionId)
++                return@post
++            }
+             try {
+                 speech?.cancel()
+             } catch (e: Exception) {
+@@ -252,15 +286,46 @@ class ExpoSpeechService(
+                 // Ignore Android framework bug where unbindService throws IllegalArgumentException
+             }
+             speech = null
+-            stopRecording()
++            stopRecording(sessionId)
+             soundState = SoundState.INACTIVE
+-            sendEvent("end", null)
+-            recognitionState = state
++            sendEvent("end", null, sessionId)
++            if (activeSessionId == null) recognitionState = state
+             delayedFileStreamer?.close()
+             delayedFileStreamer = null
+         }
+     }
+ 
++    private fun listenerFor(sessionId: Long): RecognitionListener =
++        object : RecognitionListener {
++            private inline fun ifCurrent(block: () -> Unit) {
++                if (activeSessionId == sessionId) block()
++            }
++
++            override fun onReadyForSpeech(params: Bundle?) = ifCurrent { this@ExpoSpeechService.onReadyForSpeech(params) }
++
++            override fun onBeginningOfSpeech() = ifCurrent { this@ExpoSpeechService.onBeginningOfSpeech() }
++
++            override fun onRmsChanged(rmsdB: Float) = ifCurrent { this@ExpoSpeechService.onRmsChanged(rmsdB) }
++
++            override fun onBufferReceived(buffer: ByteArray?) = ifCurrent { this@ExpoSpeechService.onBufferReceived(buffer) }
++
++            override fun onEndOfSpeech() = ifCurrent { this@ExpoSpeechService.onEndOfSpeech() }
++
++            override fun onError(error: Int) = ifCurrent { this@ExpoSpeechService.onError(error) }
++
++            override fun onResults(results: Bundle?) = ifCurrent { this@ExpoSpeechService.onResults(results) }
++
++            override fun onPartialResults(partialResults: Bundle?) = ifCurrent { this@ExpoSpeechService.onPartialResults(partialResults) }
++
++            override fun onEvent(eventType: Int, params: Bundle?) = ifCurrent { this@ExpoSpeechService.onEvent(eventType, params) }
++
++            override fun onLanguageDetection(results: Bundle) = ifCurrent { this@ExpoSpeechService.onLanguageDetection(results) }
++
++            override fun onSegmentResults(segmentResults: Bundle) = ifCurrent { this@ExpoSpeechService.onSegmentResults(segmentResults) }
++
++            override fun onEndOfSegmentedSession() = ifCurrent { this@ExpoSpeechService.onEndOfSegmentedSession() }
++        }
++
+     private fun createSpeechIntent(options: SpeechRecognitionOptions): Intent {
+         val action = options.androidIntent ?: RecognizerIntent.ACTION_RECOGNIZE_SPEECH
+         val intent = Intent(action)
+@@ -334,7 +399,7 @@ class ExpoSpeechService(
+                 throw Exception("Audio source is only supported on Android 13 and above")
+             }
+ 
+-            log("Transcribing audio from local file: ${options.audioSource.uri}")
++            log("Transcribing audio from a local file.")
+             val file = resolveSourceUri(options.audioSource.uri)
+ 
+             // The file should exist, otherwise throw an error
+@@ -382,7 +447,7 @@ class ExpoSpeechService(
+             // Optional list of strings, towards which the recognizer should bias the recognition results.
+             // These are separate from the device context.
+             val strings = ArrayList(contextualStrings)
+-            log("biasing strings: ${strings.joinToString(", ")}")
++            log("Biasing strings configured.")
+             intent.putExtra(
+                 RecognizerIntent.EXTRA_BIASING_STRINGS,
+                 // List<String> -> ArrayList<java.lang.String>
+@@ -407,7 +472,7 @@ class ExpoSpeechService(
+         val language = options.lang.takeIf { it.isNotEmpty() } ?: Locale.getDefault().toString()
+         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+ 
+-        log("androidIntentOptions: ${options.androidIntentOptions}")
++        log("Android intent options configured.")
+ 
+         // Add any additional intent extras provided by the user
+         options.androidIntentOptions?.forEach { (key, value) ->
+@@ -416,7 +481,7 @@ class ExpoSpeechService(
+             val field = RecognizerIntent::class.java.getDeclaredField(key)
+             val fieldValue = field.get(null) as? String
+ 
+-            log("Resolved key $key -> $fieldValue with value: $value (${value.javaClass.name})")
++            log("Resolved Android intent option $key.")
+             when (value) {
+                 is Boolean -> intent.putExtra(fieldValue, value)
+                 is Int -> intent.putExtra(fieldValue, value)
+@@ -544,7 +609,7 @@ class ExpoSpeechService(
+ 
+         sendEvent("error", mapOf("error" to errorInfo.error, "message" to errorInfo.message, "code" to error))
+         teardownAndEnd(RecognitionState.ERROR)
+-        log("onError() - ${errorInfo.error}: ${errorInfo.message} - code: $error")
++        log("Recognition error code: $error")
+     }
+ 
+     private fun getResults(results: Bundle?): List<Map<String, Any>> {
+@@ -633,7 +698,7 @@ class ExpoSpeechService(
+                 ),
+             )
+         }
+-        log("onResults(), results: $resultsList")
++        log("Final recognition result delivered.")
+ 
+         teardownAndEnd()
+     }
+@@ -643,7 +708,7 @@ class ExpoSpeechService(
+         // Avoid sending result event if there was an empty result, or the first result is an empty string
+         val nonEmptyStrings = partialResultsList.filter { it["transcript"]?.toString()?.isNotEmpty() ?: false }
+ 
+-        log("onPartialResults(), results: $nonEmptyStrings")
++        log("Partial recognition result delivered.")
+         if (nonEmptyStrings.isNotEmpty()) {
+             sendEvent("result", mapOf("results" to nonEmptyStrings, "isFinal" to false))
+         }
+@@ -685,7 +750,7 @@ class ExpoSpeechService(
+                 ),
+             )
+         }
+-        log("onSegmentResults(), transcriptions: $resultsList")
++        log("Segment recognition result delivered.")
+ 
+         // If the user opted to stop
+         if (recognitionState == RecognitionState.STOPPING) {
