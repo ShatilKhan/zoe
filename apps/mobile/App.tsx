@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ComponentProps, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   AppState,
   Image,
   ImageBackground,
+  PermissionsAndroid,
   Platform,
   Pressable,
   SafeAreaView,
@@ -12,34 +13,48 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import * as ImagePicker from "expo-image-picker";
+import { Feather } from "@react-native-vector-icons/feather";
 import { calculateNutrition, matchFood, parseExplicitGrams } from "@zoe/nutrition";
 import { SYNTHETIC_RECORDS, answerFromRecords, confirmRecord, createDraftRecord, type PatientRecord, type RecordKind } from "@zoe/records";
-import { getNativeCapabilities } from "./src/platform/capabilities";
+import PresageSensor, { type PresageSensorState } from "@zoe/presage-sensor";
 import { cloudAuthAvailable, listShareGrants, requestEmailOtp, resolveShareRecipient, revokeShareGrant, uploadEncryptedShare, verifyEmailOtp, type CloudGrant, type CloudSession, type ResolvedRecipient } from "./src/platform/cloud";
 import { openVault, VaultAccessError, type Vault, type VaultOpenOptions } from "./src/platform/vault";
 import { UnlockRateLimiter, validateNewPassphrase } from "./src/platform/vaultPolicy";
 import { recordsForOpenedVault } from "./src/platform/recordBootstrap";
 import { lockThenClear, migrationBackAction, migrationRequiresCompletion } from "./src/platform/appLifecycle";
+import { useOfflineSpeechComposer } from "./src/platform/useOfflineSpeechComposer";
 
 type Screen = "home" | "records" | "ask" | "wellness" | "share";
 type AccessState = "intro" | "login" | "passphrase" | "migration" | "unlocking" | "ready";
 
 const brandMark = require("../../assets/brand/zoe-mark-transparent.png");
 const colors = {
-  ink: "#182D28",
-  muted: "#60736D",
-  cream: "#F7F2E9",
-  paper: "#FFFDF8",
-  mint: "#DDEBE2",
+  ink: "#203A31",
+  muted: "#50645A",
+  cream: "#F6F6F0",
+  paper: "#FFFFFF",
+  mint: "#E9F1D9",
+  accent: "#DCEBB0",
   moss: "#2F5D4F",
-  orange: "#E97845",
-  line: "#D9DED8",
-  danger: "#9E3D35"
+  line: "#CAD5CC",
+  danger: "#9E3D35",
+  urgent: "#FAE9E7"
 };
+
+type IconName = ComponentProps<typeof Feather>["name"];
+
+function AppIcon({ name, size = 20, color = colors.muted }: { name: IconName; size?: number; color?: string }) {
+  return <Feather name={name} size={size} color={color} />;
+}
+
+function CheckMark({ checked }: { checked: boolean }) {
+  return <View style={[styles.checkbox, checked && styles.checkboxActive]}>{checked ? <AppIcon name="check" size={17} color={colors.ink} /> : null}</View>;
+}
 
 function Button({ label, onPress, variant = "primary", disabled = false, accessibilityLabel }: { label: string; onPress: () => void; variant?: "primary" | "secondary" | "ghost"; disabled?: boolean; accessibilityLabel?: string }) {
   return (
@@ -64,7 +79,7 @@ function Field({ label, value, onChangeText, placeholder, multiline = false, sec
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#87958F"
+        placeholderTextColor={colors.muted}
         multiline={multiline}
         secureTextEntry={secureTextEntry}
         style={[styles.input, multiline && styles.multiline]}
@@ -100,7 +115,7 @@ function PassphraseAccess({ accountId, setup, error, onSubmit, onCancel, cancelL
   }, [error, limiter]);
 
   return <SafeAreaView style={styles.accessPage}><View style={styles.loginCard}>
-    <Text style={styles.eyebrow}>{setup ? "NEW DEVICE-BOUND VAULT" : "PRIVATE VAULT"}</Text>
+    <Text style={styles.contextLabel}>{setup ? "New device-bound vault" : "Private vault"}</Text>
     <Text style={styles.sectionTitle}>{setup ? "Create a strong passphrase" : "Enter your vault passphrase"}</Text>
     <Text style={styles.supporting}>{setup ? "Zoe combines this passphrase with a random account-specific secret held by Android Keystore. The passphrase alone cannot open a copied database." : `Unlock ${accountId}. The passphrase is processed only on this device.`}</Text>
     <Field label="Vault passphrase" value={passphrase} onChangeText={setPassphrase} secureTextEntry placeholder={setup ? "16+ varied characters or 4 unrelated words" : "Your vault passphrase"} />
@@ -161,7 +176,7 @@ function Login({ onPreview, onCloud, error }: { onPreview: (accountId: string) =
     <SafeAreaView style={styles.accessPage}>
       <View style={styles.accessArt}>
         <Image source={brandMark} resizeMode="contain" style={styles.loginMark} />
-        <Text style={styles.eyebrow}>PRIVATE BY DESIGN</Text>
+        <Text style={styles.contextLabel}>Private by design</Text>
         <Text style={styles.heroTitle}>Your history stays close.</Text>
         <Text style={styles.heroCopy}>Keep reviewed records on this device. Share only the pieces you choose.</Text>
       </View>
@@ -203,17 +218,16 @@ function Home({ records, setScreen, vaultMode }: { records: PatientRecord[]; set
     <ScrollView contentContainerStyle={styles.page}>
       <Header title="Good morning, Mira" subtitle="Your synthetic demo record is ready." />
       <View style={styles.privacyBanner}>
-        <Text style={styles.privacyIcon}>◉</Text>
+        <View style={styles.bannerIcon}><AppIcon name="shield" size={21} color={colors.ink} /></View>
         <View style={styles.flex}>
           <Text style={styles.cardTitle}>{vaultMode === "sqlcipher" ? "Encrypted on this device" : "Web preview storage"}</Text>
           <Text style={styles.cardCopy}>{vaultMode === "sqlcipher" ? "SQLCipher vault opened and verified." : "Browser preview uses synthetic local storage. Native builds fail closed without SQLCipher."}</Text>
         </View>
       </View>
       <View style={styles.signalCard}>
-        <Text style={styles.eyebrowLight}>WELLNESS CHECK</Text>
-        <Text style={styles.signalTitle}>A calm moment for your pulse and breathing.</Text>
-        <Text style={styles.signalCopy}>Camera frames are processed by SmartSpectra in the Android build and are not saved.</Text>
-        <Button label="Open wellness" variant="secondary" onPress={() => setScreen("wellness")} />
+        <View style={styles.signalHeading}><AppIcon name="activity" size={21} color={colors.accent} /><Text style={styles.signalTitle}>Check pulse and breathing</Text></View>
+        <Text style={styles.signalCopy}>Use the front camera for a private wellness check. Processed in memory. Zoe does not save camera frames.</Text>
+        <Button label="Start a wellness check" variant="secondary" onPress={() => setScreen("wellness")} />
       </View>
       <Text style={styles.groupTitle}>Your record</Text>
       <View style={styles.metricRow}>
@@ -221,9 +235,9 @@ function Home({ records, setScreen, vaultMode }: { records: PatientRecord[]; set
         <View style={styles.metric}><Text style={styles.metricValue}>{confirmed.filter((item) => item.kind === "medicine").length}</Text><Text style={styles.metricLabel}>medicines</Text></View>
       </View>
       <View style={styles.quickGrid}>
-        <Pressable onPress={() => setScreen("records")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><Text style={styles.quickIcon}>＋</Text><Text style={styles.cardTitle}>Add record</Text></Pressable>
-        <Pressable onPress={() => setScreen("ask")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><Text style={styles.quickIcon}>✦</Text><Text style={styles.cardTitle}>Ask Zoe</Text></Pressable>
-        <Pressable onPress={() => setScreen("share")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><Text style={styles.quickIcon}>↗</Text><Text style={styles.cardTitle}>Share safely</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => setScreen("records")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><AppIcon name="plus" size={22} color={colors.moss} /><Text style={styles.cardTitle}>Add record</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => setScreen("ask")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><AppIcon name="message-circle" size={22} color={colors.moss} /><Text style={styles.cardTitle}>Ask Zoe</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => setScreen("share")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><AppIcon name="share-2" size={22} color={colors.moss} /><Text style={styles.cardTitle}>Share records</Text></Pressable>
       </View>
     </ScrollView>
   );
@@ -287,7 +301,7 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
           <Field label="Name" value={title} onChangeText={setTitle} placeholder="For example: Metformin 500 mg" />
           <Field label="Details" value={detail} onChangeText={setDetail} placeholder="What you know, including schedule or reaction" multiline />
           <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: reviewConfirmed }} onPress={() => setReviewConfirmed((value) => !value)} style={[styles.selectRow, reviewConfirmed && styles.selectRowActive]}>
-            <Text style={styles.checkbox}>{reviewConfirmed ? "✓" : ""}</Text><Text style={styles.cardCopy}>I checked these patient-entered fields against a reliable source.</Text>
+            <CheckMark checked={reviewConfirmed} /><Text style={styles.cardCopy}>I checked these patient-entered fields against a reliable source.</Text>
           </Pressable>
           <Button label="Confirm patient-entered record" onPress={() => void submit()} />
         </View>
@@ -311,7 +325,7 @@ function Ask({ records }: { records: PatientRecord[] }) {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([{ id: "welcome", role: "zoe", text: "Ask about a confirmed record, a medicine name, or a meal. I will show what I used and what is missing." }]);
   const [busy, setBusy] = useState(false);
-  const capabilities = getNativeCapabilities();
+  const speech = useOfflineSpeechComposer(draft, setDraft);
 
   function send() {
     const question = draft.trim();
@@ -348,33 +362,136 @@ function Ask({ records }: { records: PatientRecord[] }) {
         {messages.map((message) => (
           <View key={message.id} style={[styles.bubble, message.role === "patient" ? styles.patientBubble : styles.zoeBubble]}>
             <Text style={[styles.bubbleText, message.role === "patient" && styles.patientBubbleText]}>{message.text}</Text>
-            {message.sources?.map((source) => <Text key={source} style={styles.citation}>↳ {source}</Text>)}
+            {message.sources?.map((source) => <Text key={source} style={styles.citation}>Source: {source}</Text>)}
           </View>
         ))}
         {busy ? <View style={styles.thinking}><ActivityIndicator color={colors.moss} /><Text style={styles.cardCopy}>Checking local sources…</Text></View> : null}
       </ScrollView>
       <View style={styles.composer}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Dictate question" onPress={() => setDraft(capabilities.onDeviceSpeech.reason ?? "Offline speech is unavailable.")} style={styles.iconButton}><Text style={styles.iconButtonText}>●</Text></Pressable>
-        <TextInput accessibilityLabel="Question" value={draft} onChangeText={setDraft} placeholder="Ask about your record or meal" placeholderTextColor="#7E8D87" multiline style={styles.composerInput} />
-        <Pressable accessibilityRole="button" accessibilityLabel="Send question" onPress={send} style={styles.sendButton}><Text style={styles.sendText}>↑</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={speech.state.listening ? "Finish dictation" : "Dictate question offline"} accessibilityState={{ busy: speech.state.listening }} onPress={() => void speech.toggle()} style={[styles.iconButton, speech.state.listening && styles.selectRowActive]}><AppIcon name={speech.state.listening ? "square" : "mic"} size={20} color={colors.ink} /></Pressable>
+        <TextInput accessibilityLabel="Question" value={draft} onChangeText={speech.updateDraft} placeholder="Ask about your record or meal" placeholderTextColor={colors.muted} multiline style={styles.composerInput} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Send question" onPress={send} style={styles.sendButton}><AppIcon name="send" size={20} color={colors.paper} /></Pressable>
       </View>
+      <Text accessibilityLiveRegion="polite" style={styles.speechStatus}>{speech.state.message}</Text>
     </View>
   );
 }
 
 function Wellness() {
-  const capability = getNativeCapabilities().smartSpectra;
+  const [sensor, setSensor] = useState<PresageSensorState>(PresageSensor.unavailableState);
+  const [consent, setConsent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const [showTechnical, setShowTechnical] = useState(false);
+  const running = sensor.status === "running" || sensor.status === "starting";
+
+  useEffect(() => {
+    let mounted = true;
+    const update = (next: PresageSensorState) => {
+      if (!mounted) return;
+      setSensor(next);
+      if (!next.consented) setConsent(false);
+    };
+    const subscription = PresageSensor.addStateListener(update);
+    void PresageSensor.getStatus().then(update);
+    return () => {
+      mounted = false;
+      subscription?.remove();
+      void PresageSensor.setConsent(false);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const timer = setInterval(() => {
+      void PresageSensor.getStatus().then((next) => {
+        setSensor(next);
+        if (!next.consented) setConsent(false);
+      });
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  async function toggleConsent() {
+    if (busy) return;
+    const granting = !consent;
+    setBusy(true);
+    setLocalError("");
+    if (!granting) setConsent(false);
+    try {
+      const next = await PresageSensor.setConsent(granting);
+      setSensor(next);
+      setConsent(next.consented);
+    } catch (caught) {
+      setConsent(false);
+      setLocalError(caught instanceof Error ? caught.message : "Camera consent could not be updated.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startCapture() {
+    if (!consent || busy) return;
+    setBusy(true);
+    setLocalError("");
+    try {
+      if (Platform.OS !== "android") throw new Error("SmartSpectra capture requires the Android preview build.");
+      const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.CAMERA, {
+        title: "Camera for live wellness",
+        message: "Zoe uses the front camera in memory to estimate pulse and breathing. Zoe does not save camera frames.",
+        buttonPositive: "Allow camera",
+        buttonNegative: "Not now",
+      });
+      if (permission !== PermissionsAndroid.RESULTS.GRANTED) throw new Error("Camera permission was not granted. No capture started.");
+      setSensor(await PresageSensor.initialize());
+      setSensor(await PresageSensor.start());
+    } catch (caught) {
+      setLocalError(caught instanceof Error ? caught.message : "SmartSpectra could not start.");
+      setSensor(await PresageSensor.getStatus());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopCapture() {
+    setBusy(true);
+    try { setSensor(await PresageSensor.stop()); }
+    finally { setBusy(false); }
+  }
+
+  const showStableValues = sensor.status === "running" && sensor.fresh && sensor.quality === "stable" && sensor.validation === "ok";
+  const statusLabel = sensor.status === "unconfigured"
+    ? "Unavailable in this build"
+    : running
+      ? "Camera check in progress"
+      : consent
+        ? "Ready to start"
+        : "Waiting for permission";
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Header title="Live wellness" subtitle="Pulse and breathing are wellness signals, not a diagnosis." />
+      <Header title="Wellness check" subtitle="Check pulse and breathing with your front camera. These signals are not a diagnosis." />
       <View style={styles.consentCard}>
-        <Text style={styles.pulseGlyph}>◌</Text>
-        <Text style={styles.sectionTitle}>Camera consent comes first</Text>
-        <Text style={styles.cardCopy}>The Android module requests pulse and breathing rate only. Frames are processed in memory and are not stored by Zoe.</Text>
-        <View style={styles.unavailable}><Text style={styles.error}>{capability.reason}</Text></View>
-        <Button label="Start on supported Android build" disabled={!capability.available} onPress={() => {}} />
+        <View style={styles.wellnessIcon}><AppIcon name="camera" size={26} color={colors.ink} /></View>
+        <Text style={styles.sectionTitle}>Before you start</Text>
+        <Text style={styles.cardCopy}>Zoe uses the front camera only during this check. Processed in memory. Zoe does not save camera frames.</Text>
+        <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: consent }} disabled={busy} onPress={() => void toggleConsent()} style={[styles.selectRow, consent && styles.selectRowActive]}>
+          <CheckMark checked={consent} /><Text style={styles.cardCopy}>Allow camera use for this wellness check.</Text>
+        </Pressable>
+        <View style={styles.statusPanel}>
+          <Text style={styles.cardTitle}>{statusLabel}</Text>
+          {sensor.reason ? <Text style={styles.cardCopy}>{sensor.reason}</Text> : null}
+          <Pressable accessibilityRole="button" accessibilityState={{ expanded: showTechnical }} accessibilityLabel="Technical details" aria-expanded={showTechnical} onPress={() => setShowTechnical((visible) => !visible)} style={styles.technicalToggle}><AppIcon name={showTechnical ? "chevron-up" : "chevron-down"} size={18} color={colors.ink} /><Text style={styles.technicalToggleText}>Technical details</Text></Pressable>
+          {showTechnical ? <Text style={styles.technicalDetail}>Status {sensor.status} · readiness {sensor.readiness} · signal {sensor.quality}{sensor.validation ? ` · validation ${sensor.validation}` : ""} · SDK telemetry off</Text> : null}
+        </View>
+        {localError ? <Text style={styles.error}>{localError}</Text> : null}
+        {running ? <Button label="Stop camera check" variant="secondary" disabled={busy} onPress={() => void stopCapture()} /> : <Button label={busy ? "Checking camera…" : "Start camera check"} disabled={!consent || busy || !sensor.linked || !sensor.configured} onPress={() => void startCapture()} />}
       </View>
-      <View style={styles.notice}><Text style={styles.cardTitle}>No simulated vital signs</Text><Text style={styles.cardCopy}>This screen stays unavailable until the real SmartSpectra SDK initializes. Zoe will not show random values as a successful capture.</Text></View>
+      <View style={styles.metricRow}>
+        <View style={styles.metric}><Text style={styles.metricValue}>{showStableValues && sensor.pulseRate != null ? Math.round(sensor.pulseRate) : "—"}</Text><Text style={styles.metricLabel}>Pulse · bpm</Text>{showStableValues && sensor.pulseConfidence != null ? <Text style={styles.source}>{Math.round(sensor.pulseConfidence)}% confidence</Text> : null}</View>
+        <View style={styles.metric}><Text style={styles.metricValue}>{showStableValues && sensor.breathingRate != null ? Math.round(sensor.breathingRate) : "—"}</Text><Text style={styles.metricLabel}>Breathing · breaths/min</Text>{showStableValues && sensor.breathingConfidence != null ? <Text style={styles.source}>{Math.round(sensor.breathingConfidence)}% confidence</Text> : null}</View>
+      </View>
+      {showStableValues && sensor.capturedAt ? <Text style={styles.source}>Fresh reading: {new Date(sensor.capturedAt).toLocaleTimeString()}</Text> : null}
+      <View style={styles.notice}><Text style={styles.cardTitle}>Only fresh, stable readings appear</Text><Text style={styles.cardCopy}>Missing, stale, invalid, or low-quality readings stay blank. Zoe never substitutes sample values.</Text></View>
     </ScrollView>
   );
 }
@@ -424,22 +541,23 @@ function Share({ records, cloudSession }: { records: PatientRecord[]; cloudSessi
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
-      <Header title="Share selected records" subtitle="Zoe encrypts the bundle before it leaves this device. A downloaded copy cannot be revoked." />
+      <Header title="Share selected records" subtitle="Choose a clinician and records, then review before sending. A downloaded copy cannot be revoked." />
       <View style={styles.formCard}>
-        <Field label="Recipient Supabase user ID" value={recipient} onChangeText={(value) => { setRecipient(value); setResolvedRecipient(null); setShareConfirmed(false); setShareUrl(""); }} placeholder="Authenticated clinician UUID" />
-        <Button label="Resolve clinician account" variant="secondary" disabled={!cloudSession} onPress={() => void resolveRecipient()} />
-        {resolvedRecipient ? <View style={styles.notice}><Text style={styles.cardTitle}>{resolvedRecipient.displayName}</Text><Text style={styles.cardCopy}>{resolvedRecipient.organization}</Text><Text style={styles.source}>Self-declared accepting profile · {resolvedRecipient.userId}</Text></View> : null}
+        <Field label="Clinician recipient ID" value={recipient} onChangeText={(value) => { setRecipient(value); setResolvedRecipient(null); setShareConfirmed(false); setShareUrl(""); }} placeholder="ID supplied by the clinician" />
+        <Text style={styles.helperText}>Use the recipient ID supplied by the clinician. Zoe matches it to their signed-in account before sharing.</Text>
+        <Button label="Check recipient" variant="secondary" disabled={!cloudSession} onPress={() => void resolveRecipient()} />
+        {resolvedRecipient ? <View style={styles.notice}><Text style={styles.cardTitle}>{resolvedRecipient.displayName}</Text><Text style={styles.cardCopy}>{resolvedRecipient.organization}</Text><Text style={styles.source}>Self-declared profile accepting shares · {resolvedRecipient.userId}</Text></View> : null}
         <Text style={styles.label}>Choose records</Text>
         {records.map((record) => {
           const active = selected.includes(record.id);
-          return <Pressable key={record.id} onPress={() => { setShareConfirmed(false); setShareUrl(""); setSelected((current) => active ? current.filter((id) => id !== record.id) : [...current, record.id]); }} style={[styles.selectRow, active && styles.selectRowActive]}><Text style={styles.checkbox}>{active ? "✓" : ""}</Text><View style={styles.flex}><Text style={styles.cardTitle}>{record.title}</Text><Text style={styles.source}>{record.source}</Text></View></Pressable>;
+          return <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: active }} key={record.id} onPress={() => { setShareConfirmed(false); setShareUrl(""); setSelected((current) => active ? current.filter((id) => id !== record.id) : [...current, record.id]); }} style={[styles.selectRow, active && styles.selectRowActive]}><CheckMark checked={active} /><View style={styles.flex}><Text style={styles.cardTitle}>{record.title}</Text><Text style={styles.source}>{record.source}</Text></View></Pressable>;
         })}
-        {resolvedRecipient ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: shareConfirmed }} onPress={() => setShareConfirmed((value) => !value)} style={[styles.selectRow, shareConfirmed && styles.selectRowActive]}><Text style={styles.checkbox}>{shareConfirmed ? "✓" : ""}</Text><Text style={styles.cardCopy}>Share {selected.length} selected record{selected.length === 1 ? "" : "s"} with {resolvedRecipient.displayName} at {resolvedRecipient.organization}.</Text></Pressable> : null}
+        {resolvedRecipient ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: shareConfirmed }} onPress={() => setShareConfirmed((value) => !value)} style={[styles.selectRow, shareConfirmed && styles.selectRowActive]}><CheckMark checked={shareConfirmed} /><Text style={styles.cardCopy}>Share {selected.length} selected record{selected.length === 1 ? "" : "s"} with {resolvedRecipient.displayName} at {resolvedRecipient.organization}.</Text></Pressable> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {!cloudSession ? <Text style={styles.error}>Synthetic preview session: upload and share creation are disabled.</Text> : null}
-        <Button label="Encrypt and upload selected records" disabled={!cloudSession || !resolvedRecipient || !shareConfirmed || selected.length === 0} onPress={() => void createEncryptedLink()} />
+        {!cloudSession ? <Text style={styles.error}>Cloud sharing is unavailable in synthetic preview.</Text> : null}
+        <Button label="Encrypt and create link" accessibilityLabel="Encrypt and upload selected records" disabled={!cloudSession || !resolvedRecipient || !shareConfirmed || selected.length === 0} onPress={() => void createEncryptedLink()} />
       </View>
-      {shareUrl ? <View style={styles.successCard}><Text style={styles.eyebrowLight}>ENCRYPTED LINK READY</Text><Text selectable style={styles.shareLink}>{shareUrl}</Text><Text style={styles.signalCopy}>Ciphertext is in private Supabase Storage. The fragment key after # is not sent in the HTTP request.</Text></View> : null}
+      {shareUrl ? <View style={styles.successCard}><Text style={styles.successLabel}>Encrypted link ready</Text><Text selectable style={styles.shareLink}>{shareUrl}</Text><Text style={styles.signalCopy}>The encrypted file is stored privately. The key after # stays in the link and is not sent with the web request.</Text></View> : null}
       {cloudSession ? <>
         <Text style={styles.groupTitle}>Share access</Text>
         {grants.length === 0 ? <Text style={styles.supporting}>No share grants yet.</Text> : grants.map((grant) => <View key={grant.id} style={styles.recordCard}>
@@ -452,18 +570,23 @@ function Share({ records, cloudSession }: { records: PatientRecord[]; cloudSessi
   );
 }
 
-function Navigation({ screen, setScreen }: { screen: Screen; setScreen: (screen: Screen) => void }) {
-  const items: Array<{ screen: Screen; label: string; icon: string }> = [
-    { screen: "home", label: "Home", icon: "⌂" },
-    { screen: "records", label: "Records", icon: "▤" },
-    { screen: "ask", label: "Ask", icon: "✦" },
-    { screen: "wellness", label: "Wellness", icon: "◌" },
-    { screen: "share", label: "Share", icon: "↗" }
+function Navigation({ screen, setScreen, expanded }: { screen: Screen; setScreen: (screen: Screen) => void; expanded: boolean }) {
+  const items: Array<{ screen: Screen; label: string; icon: IconName }> = [
+    { screen: "home", label: "Home", icon: "home" },
+    { screen: "records", label: "Records", icon: "file-text" },
+    { screen: "ask", label: "Ask", icon: "message-circle" },
+    { screen: "wellness", label: "Wellness", icon: "activity" },
+    { screen: "share", label: "Share", icon: "share-2" }
   ];
-  return <View style={styles.nav}>{items.map((item) => <Pressable key={item.screen} onPress={() => setScreen(item.screen)} accessibilityRole="tab" accessibilityState={{ selected: item.screen === screen }} style={styles.navItem}><Text style={[styles.navIcon, item.screen === screen && styles.navActive]}>{item.icon}</Text><Text style={[styles.navLabel, item.screen === screen && styles.navActive]}>{item.label}</Text></Pressable>)}</View>;
+  return <View accessibilityLabel="Primary navigation" style={[styles.nav, expanded && styles.navRail]}>{items.map((item) => {
+    const active = item.screen === screen;
+    return <Pressable key={item.screen} onPress={() => setScreen(item.screen)} accessibilityRole="button" accessibilityLabel={item.label} accessibilityState={{ selected: active }} aria-current={active ? "page" : undefined} style={({ pressed }) => [styles.navItem, expanded && styles.navRailItem, active && styles.navItemActive, pressed && styles.pressed]}><AppIcon name={item.icon} size={20} color={active ? colors.ink : colors.muted} /><Text style={[styles.navLabel, active && styles.navActive]}>{item.label}</Text></Pressable>;
+  })}</View>;
 }
 
 export default function App() {
+  const { width } = useWindowDimensions();
+  const expanded = width >= 760;
   const [access, setAccess] = useState<AccessState>("intro");
   const [screen, setScreen] = useState<Screen>("home");
   const [records, setRecords] = useState<PatientRecord[]>([]);
@@ -585,33 +708,126 @@ export default function App() {
   return (
     <SafeAreaView style={styles.shell}>
       <StatusBar style="dark" />
-      <View style={styles.sessionBar}><Text style={styles.source}>{cloudSession ? "Supabase authenticated" : "Synthetic preview"} · {userId}</Text><View style={styles.sessionActions}>{vault?.protection === "biometric" ? <Pressable accessibilityRole="button" onPress={() => { setError(""); setMigrationRecoveryRequired(false); setAccess("migration"); }}><Text style={styles.lockText}>Use passphrase</Text></Pressable> : null}<Pressable accessibilityRole="button" onPress={() => void signOut()}><Text style={styles.lockText}>Lock vault</Text></Pressable></View></View>
-      <View style={styles.content}>{body}</View>
-      <Navigation screen={screen} setScreen={setScreen} />
+      <View style={styles.sessionBar}><Text numberOfLines={1} style={styles.sessionLabel}>{cloudSession ? "Signed in" : "Synthetic preview"} · {userId}</Text><View style={styles.sessionActions}>{vault?.protection === "biometric" ? <Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => { setError(""); setMigrationRecoveryRequired(false); setAccess("migration"); }}><Text style={styles.lockText}>Use passphrase</Text></Pressable> : null}<Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => void signOut()}><AppIcon name="lock" size={15} color={colors.ink} /><Text style={styles.lockText}>Lock vault</Text></Pressable></View></View>
+      <View style={styles.appFrame}>
+        {expanded ? <Navigation screen={screen} setScreen={setScreen} expanded /> : null}
+        <View style={styles.content}>{body}</View>
+      </View>
+      {!expanded ? <Navigation screen={screen} setScreen={setScreen} expanded={false} /> : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  shell: { flex: 1, backgroundColor: colors.cream }, content: { flex: 1 }, flex: { flex: 1 },
+  shell: { flex: 1, backgroundColor: colors.cream },
+  appFrame: { flex: 1, flexDirection: "row", minWidth: 0 },
+  content: { flex: 1, minWidth: 0 },
+  flex: { flex: 1, minWidth: 0 },
   intro: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.cream, padding: 32 },
-  introMark: { width: 180, height: 180 }, introWord: { fontFamily: Platform.select({ web: "Georgia", default: "serif" }), fontSize: 52, color: colors.ink, letterSpacing: -2, marginTop: -20 }, introTagline: { color: colors.muted, fontSize: 16, marginTop: 8 },
-  accessPage: { flex: 1, backgroundColor: colors.cream, alignItems: "center", justifyContent: "center", padding: 22 }, accessArt: { width: "100%", maxWidth: 520, alignItems: "flex-start", padding: 24 }, loginMark: { width: 110, height: 110, alignSelf: "center", marginBottom: 12 },
-  eyebrow: { color: colors.orange, fontWeight: "800", letterSpacing: 2, fontSize: 11 }, eyebrowLight: { color: "#F7CBB8", fontWeight: "800", letterSpacing: 2, fontSize: 11 }, heroTitle: { color: colors.ink, fontSize: 40, lineHeight: 43, fontFamily: Platform.select({ web: "Georgia", default: "serif" }), marginTop: 10 }, heroCopy: { color: colors.muted, fontSize: 17, lineHeight: 25, marginTop: 12 },
-  loginCard: { width: "100%", maxWidth: 520, backgroundColor: colors.paper, borderRadius: 28, padding: 24, gap: 15, borderWidth: 1, borderColor: colors.line, shadowColor: "#172923", shadowOpacity: 0.08, shadowRadius: 25, shadowOffset: { width: 0, height: 10 } }, sectionTitle: { fontSize: 24, lineHeight: 29, fontWeight: "700", color: colors.ink }, supporting: { color: colors.muted, fontSize: 15, lineHeight: 21 }, finePrint: { color: colors.muted, fontSize: 12, lineHeight: 17, textAlign: "center" }, noticeText: { color: "#6C5147", backgroundColor: "#FFF4E9", padding: 12, borderRadius: 12, fontSize: 13, lineHeight: 18 }, error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
-  button: { minHeight: 50, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 16, alignItems: "center", justifyContent: "center", flexGrow: 1 }, button_primary: { backgroundColor: colors.moss }, button_secondary: { backgroundColor: colors.mint }, button_ghost: { backgroundColor: "transparent", borderColor: colors.line, borderWidth: 1 }, buttonText: { color: "white", fontWeight: "700", fontSize: 15 }, buttonTextDark: { color: colors.ink }, pressed: { opacity: 0.72, transform: [{ scale: 0.99 }] }, disabled: { opacity: 0.45 },
-  page: { padding: 20, paddingBottom: 36, width: "100%", maxWidth: 760, alignSelf: "center", gap: 14 }, header: { gap: 6, marginBottom: 5 }, headerBrand: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 12 }, headerMark: { width: 28, height: 28 }, headerWord: { color: colors.ink, fontSize: 20, fontFamily: Platform.select({ web: "Georgia", default: "serif" }) }, screenTitle: { color: colors.ink, fontSize: 32, lineHeight: 37, fontFamily: Platform.select({ web: "Georgia", default: "serif" }) },
-  privacyBanner: { backgroundColor: colors.mint, borderRadius: 20, padding: 16, flexDirection: "row", gap: 13 }, privacyIcon: { color: colors.moss, fontSize: 24 }, cardTitle: { color: colors.ink, fontSize: 16, lineHeight: 21, fontWeight: "700" }, cardCopy: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 3 },
-  signalCard: { backgroundColor: colors.ink, borderRadius: 27, padding: 22, gap: 10 }, signalTitle: { color: "white", fontSize: 25, lineHeight: 30, fontFamily: Platform.select({ web: "Georgia", default: "serif" }) }, signalCopy: { color: "#D7E5DF", fontSize: 14, lineHeight: 20 }, groupTitle: { color: colors.ink, fontSize: 20, fontWeight: "700", marginTop: 10 },
-  metricRow: { flexDirection: "row", gap: 12 }, metric: { flex: 1, backgroundColor: colors.paper, padding: 18, borderRadius: 20, borderColor: colors.line, borderWidth: 1 }, metricValue: { color: colors.orange, fontSize: 30, fontWeight: "800" }, metricLabel: { color: colors.muted, fontSize: 13 }, quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 11 }, quickCard: { flexGrow: 1, minWidth: 130, backgroundColor: colors.paper, borderRadius: 20, padding: 18, borderColor: colors.line, borderWidth: 1, gap: 8 }, quickIcon: { color: colors.orange, fontSize: 24 },
-  actionRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" }, notice: { padding: 15, borderRadius: 16, backgroundColor: "#FFF4E9", borderColor: "#F0D5BA", borderWidth: 1 }, formCard: { backgroundColor: colors.paper, padding: 19, borderRadius: 23, borderColor: colors.line, borderWidth: 1, gap: 14 }, fieldWrap: { gap: 6 }, label: { color: colors.ink, fontSize: 13, fontWeight: "700" }, input: { minHeight: 50, backgroundColor: "#F7F7F2", borderColor: colors.line, borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, color: colors.ink, fontSize: 15 }, multiline: { minHeight: 100, textAlignVertical: "top" }, chips: { flexDirection: "row", flexWrap: "wrap", gap: 7 }, chip: { borderRadius: 99, borderColor: colors.line, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 }, chipActive: { backgroundColor: colors.ink, borderColor: colors.ink }, chipText: { color: colors.muted, textTransform: "capitalize", fontSize: 13 }, chipTextActive: { color: "white" },
-  recordCard: { backgroundColor: colors.paper, padding: 17, borderRadius: 19, borderColor: colors.line, borderWidth: 1, gap: 5 }, recordTop: { flexDirection: "row", justifyContent: "space-between", gap: 10 }, kind: { color: colors.orange, fontWeight: "800", textTransform: "uppercase", fontSize: 11, letterSpacing: 1 }, source: { color: colors.muted, fontSize: 12 }, date: { color: colors.muted, fontSize: 12, marginTop: 5 },
-  rxPreview: { backgroundColor: colors.paper, borderRadius: 22, padding: 10, borderColor: colors.line, borderWidth: 1 }, rxImage: { height: 260, justifyContent: "center", alignItems: "center" }, rxImageCorners: { borderRadius: 15 },
-  chatPage: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" }, chatHeader: { paddingHorizontal: 20, paddingTop: 20 }, messages: { padding: 20, paddingTop: 5, gap: 12 }, bubble: { maxWidth: "88%", padding: 15, borderRadius: 19, gap: 8 }, zoeBubble: { alignSelf: "flex-start", backgroundColor: colors.paper, borderColor: colors.line, borderWidth: 1, borderTopLeftRadius: 6 }, patientBubble: { alignSelf: "flex-end", backgroundColor: colors.moss, borderTopRightRadius: 6 }, bubbleText: { color: colors.ink, fontSize: 15, lineHeight: 21 }, patientBubbleText: { color: "white" }, citation: { color: colors.muted, fontSize: 12, lineHeight: 16, borderTopColor: colors.line, borderTopWidth: 1, paddingTop: 6 }, thinking: { flexDirection: "row", alignSelf: "flex-start", gap: 10, alignItems: "center", padding: 12 },
-  composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, padding: 12, backgroundColor: colors.paper, borderTopColor: colors.line, borderTopWidth: 1 }, composerInput: { flex: 1, maxHeight: 110, minHeight: 48, backgroundColor: colors.cream, borderRadius: 16, padding: 12, color: colors.ink, fontSize: 15 }, iconButton: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint }, iconButtonText: { color: colors.moss, fontSize: 18 }, sendButton: { width: 48, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: colors.orange }, sendText: { color: "white", fontSize: 25, fontWeight: "800" },
-  consentCard: { backgroundColor: colors.paper, padding: 24, borderRadius: 27, borderColor: colors.line, borderWidth: 1, alignItems: "center", gap: 13 }, pulseGlyph: { color: colors.orange, fontSize: 80 }, unavailable: { backgroundColor: "#F9ECE9", borderRadius: 13, padding: 12, width: "100%" },
-  selectRow: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 15, padding: 12 }, selectRowActive: { backgroundColor: colors.mint, borderColor: "#9CB9A9" }, checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: colors.moss, color: colors.moss, textAlign: "center", lineHeight: 20, fontWeight: "800" }, successCard: { backgroundColor: colors.ink, padding: 20, borderRadius: 22, gap: 10 }, shareLink: { color: "white", fontSize: 12, lineHeight: 17 },
-  sessionBar: { minHeight: 34, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.mint, borderBottomColor: colors.line, borderBottomWidth: 1 }, lockText: { color: colors.moss, fontWeight: "800", fontSize: 12 },
-  sessionActions: { flexDirection: "row", alignItems: "center", gap: 16 },
-  nav: { flexDirection: "row", backgroundColor: colors.paper, borderTopColor: colors.line, borderTopWidth: 1, minHeight: 68, paddingBottom: Platform.OS === "ios" ? 10 : 3, justifyContent: "space-around" }, navItem: { alignItems: "center", justifyContent: "center", minWidth: 66, minHeight: 58, gap: 2 }, navIcon: { color: colors.muted, fontSize: 20 }, navLabel: { color: colors.muted, fontSize: 11, fontWeight: "600" }, navActive: { color: colors.orange }, loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.cream, gap: 14 }
+  introMark: { width: 170, height: 170 },
+  introWord: { fontSize: 44, lineHeight: 50, fontWeight: "700", color: colors.ink, letterSpacing: -1, marginTop: -18 },
+  introTagline: { color: colors.muted, fontSize: 16, lineHeight: 24, marginTop: 8 },
+  accessPage: { flex: 1, backgroundColor: colors.cream, alignItems: "center", justifyContent: "center", padding: 16 },
+  accessArt: { width: "100%", maxWidth: 520, alignItems: "flex-start", padding: 16 },
+  loginMark: { width: 104, height: 104, alignSelf: "center", marginBottom: 12 },
+  contextLabel: { color: colors.muted, fontWeight: "700", fontSize: 14, lineHeight: 19 },
+  heroTitle: { color: colors.ink, fontSize: 32, lineHeight: 38, fontWeight: "700", letterSpacing: -0.5, marginTop: 8 },
+  heroCopy: { color: colors.muted, fontSize: 16, lineHeight: 24, marginTop: 10, maxWidth: 520 },
+  loginCard: { width: "100%", maxWidth: 520, backgroundColor: colors.paper, borderRadius: 16, padding: 20, gap: 16, borderWidth: 1, borderColor: colors.line },
+  sectionTitle: { fontSize: 23, lineHeight: 28, fontWeight: "700", color: colors.ink },
+  supporting: { color: colors.muted, fontSize: 15, lineHeight: 22, maxWidth: 640 },
+  finePrint: { color: colors.muted, fontSize: 14, lineHeight: 20, textAlign: "center" },
+  noticeText: { color: colors.ink, backgroundColor: colors.mint, padding: 12, borderRadius: 12, fontSize: 14, lineHeight: 20 },
+  error: { color: colors.danger, fontSize: 14, lineHeight: 20 },
+  button: { minHeight: 48, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 12, alignItems: "center", justifyContent: "center", flexGrow: 1 },
+  button_primary: { backgroundColor: colors.moss },
+  button_secondary: { backgroundColor: colors.mint },
+  button_ghost: { backgroundColor: "transparent", borderColor: colors.line, borderWidth: 1 },
+  buttonText: { color: colors.paper, fontWeight: "700", fontSize: 15 },
+  buttonTextDark: { color: colors.ink },
+  pressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
+  disabled: { opacity: 0.5 },
+  page: { padding: 16, paddingBottom: 32, width: "100%", maxWidth: 760, alignSelf: "center", gap: 16 },
+  header: { gap: 6, marginBottom: 4 },
+  headerBrand: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 8 },
+  headerMark: { width: 28, height: 28 },
+  headerWord: { color: colors.ink, fontSize: 20, fontWeight: "700" },
+  screenTitle: { color: colors.ink, fontSize: 28, lineHeight: 34, fontWeight: "700", letterSpacing: -0.4 },
+  privacyBanner: { backgroundColor: colors.mint, borderRadius: 14, padding: 16, flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  bannerIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.accent },
+  cardTitle: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  cardCopy: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 2, flexShrink: 1 },
+  signalCard: { backgroundColor: colors.ink, borderRadius: 16, padding: 20, gap: 12 },
+  signalHeading: { flexDirection: "row", alignItems: "center", gap: 10 },
+  signalTitle: { color: colors.paper, fontSize: 22, lineHeight: 27, fontWeight: "700", flexShrink: 1 },
+  signalCopy: { color: "#E2ECE7", fontSize: 14, lineHeight: 21 },
+  groupTitle: { color: colors.ink, fontSize: 20, lineHeight: 25, fontWeight: "700", marginTop: 8 },
+  metricRow: { flexDirection: "row", gap: 16, borderTopColor: colors.line, borderTopWidth: 1, borderBottomColor: colors.line, borderBottomWidth: 1 },
+  metric: { flex: 1, paddingVertical: 16 },
+  metricValue: { color: colors.ink, fontSize: 28, lineHeight: 34, fontWeight: "800" },
+  metricLabel: { color: colors.muted, fontSize: 14, lineHeight: 20 },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  quickCard: { flexGrow: 1, minWidth: 128, minHeight: 88, backgroundColor: colors.paper, borderRadius: 14, padding: 16, borderColor: colors.line, borderWidth: 1, gap: 8 },
+  actionRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  notice: { padding: 14, borderRadius: 12, backgroundColor: colors.mint },
+  formCard: { backgroundColor: colors.paper, padding: 16, borderRadius: 16, borderColor: colors.line, borderWidth: 1, gap: 16 },
+  fieldWrap: { gap: 7 },
+  label: { color: colors.ink, fontSize: 14, lineHeight: 19, fontWeight: "700" },
+  helperText: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: -8 },
+  input: { minHeight: 48, backgroundColor: colors.paper, borderColor: colors.line, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, color: colors.ink, fontSize: 15 },
+  multiline: { minHeight: 96, textAlignVertical: "top" },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: { minHeight: 44, borderRadius: 22, borderColor: colors.line, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, justifyContent: "center" },
+  chipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipText: { color: colors.muted, textTransform: "capitalize", fontSize: 14 },
+  chipTextActive: { color: colors.paper },
+  recordCard: { paddingVertical: 15, borderBottomColor: colors.line, borderBottomWidth: 1, gap: 5 },
+  recordTop: { flexDirection: "row", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  kind: { color: colors.moss, fontWeight: "700", textTransform: "capitalize", fontSize: 14 },
+  source: { color: colors.muted, fontSize: 14, lineHeight: 19 },
+  date: { color: colors.muted, fontSize: 14, lineHeight: 19, marginTop: 4 },
+  rxPreview: { backgroundColor: colors.paper, borderRadius: 16, padding: 10, borderColor: colors.line, borderWidth: 1 },
+  rxImage: { height: 250, justifyContent: "center", alignItems: "center" },
+  rxImageCorners: { borderRadius: 10 },
+  chatPage: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center", minWidth: 0 },
+  chatHeader: { paddingHorizontal: 16, paddingTop: 16 },
+  messages: { padding: 16, paddingTop: 6, gap: 12 },
+  bubble: { maxWidth: "88%", padding: 14, borderRadius: 16, gap: 8 },
+  zoeBubble: { alignSelf: "flex-start", backgroundColor: colors.paper, borderColor: colors.line, borderWidth: 1, borderTopLeftRadius: 5 },
+  patientBubble: { alignSelf: "flex-end", backgroundColor: colors.moss, borderTopRightRadius: 5 },
+  bubbleText: { color: colors.ink, fontSize: 15, lineHeight: 22 },
+  patientBubbleText: { color: colors.paper },
+  citation: { color: colors.muted, fontSize: 14, lineHeight: 20, borderTopColor: colors.line, borderTopWidth: 1, paddingTop: 7 },
+  thinking: { flexDirection: "row", alignSelf: "flex-start", gap: 10, alignItems: "center", padding: 12 },
+  composer: { flexDirection: "row", alignItems: "flex-end", gap: 6, padding: 8, backgroundColor: colors.paper, borderTopColor: colors.line, borderTopWidth: 1, minWidth: 0 },
+  composerInput: { flex: 1, minWidth: 0, maxHeight: 110, minHeight: 48, backgroundColor: colors.cream, borderColor: colors.line, borderWidth: 1, borderRadius: 12, padding: 12, color: colors.ink, fontSize: 15 },
+  iconButton: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint, flexShrink: 0 },
+  sendButton: { width: 48, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: colors.moss, flexShrink: 0 },
+  speechStatus: { color: colors.muted, backgroundColor: colors.paper, fontSize: 14, lineHeight: 20, paddingHorizontal: 12, paddingBottom: 8 },
+  consentCard: { backgroundColor: colors.paper, padding: 18, borderRadius: 16, borderColor: colors.line, borderWidth: 1, alignItems: "stretch", gap: 14 },
+  wellnessIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.mint },
+  statusPanel: { backgroundColor: colors.cream, borderRadius: 12, padding: 14, gap: 5 },
+  technicalDetail: { color: colors.muted, fontSize: 14, lineHeight: 20, marginTop: 4 },
+  technicalToggle: { minHeight: 48, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, marginTop: 2, paddingRight: 12 },
+  technicalToggleText: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: "700" },
+  selectRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 12 },
+  selectRowActive: { backgroundColor: colors.mint, borderColor: colors.moss },
+  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: colors.moss, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  checkboxActive: { backgroundColor: colors.accent },
+  successCard: { backgroundColor: colors.ink, padding: 18, borderRadius: 16, gap: 10 },
+  successLabel: { color: colors.accent, fontWeight: "700", fontSize: 14, lineHeight: 20 },
+  shareLink: { color: colors.paper, fontSize: 14, lineHeight: 20 },
+  sessionBar: { minHeight: 52, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, backgroundColor: colors.mint, borderBottomColor: colors.line, borderBottomWidth: 1 },
+  sessionLabel: { flex: 1, minWidth: 0, color: colors.muted, fontSize: 14, lineHeight: 20 },
+  sessionActions: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
+  sessionButton: { minHeight: 48, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: 10 },
+  lockText: { color: colors.ink, fontWeight: "700", fontSize: 14 },
+  nav: { flexDirection: "row", backgroundColor: colors.paper, borderTopColor: colors.line, borderTopWidth: 1, minHeight: 68, paddingHorizontal: 2, paddingBottom: Platform.OS === "ios" ? 10 : 2 },
+  navRail: { width: 112, flexDirection: "column", borderTopWidth: 0, borderRightColor: colors.line, borderRightWidth: 1, padding: 8, gap: 4 },
+  navItem: { flex: 1, minWidth: 0, minHeight: 64, alignItems: "center", justifyContent: "center", gap: 3, borderRadius: 12, paddingHorizontal: 2 },
+  navRailItem: { flexGrow: 0, flexBasis: 64, width: "100%", paddingHorizontal: 8 },
+  navItemActive: { backgroundColor: colors.mint },
+  navLabel: { color: colors.muted, fontSize: 14, lineHeight: 18, fontWeight: "600" },
+  navActive: { color: colors.ink, fontWeight: "800" },
+  loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.cream, gap: 14 }
 });

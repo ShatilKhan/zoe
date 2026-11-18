@@ -9,8 +9,9 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     baseURL: "http://127.0.0.1:8083",
-    channel: "chrome",
+    browserName: "firefox",
     viewport: { width: 430, height: 932 },
+    reducedMotion: "reduce",
     trace: "retain-on-failure",
     screenshot: "only-on-failure"
   },

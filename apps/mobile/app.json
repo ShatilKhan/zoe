@@ -8,6 +8,13 @@
     "userInterfaceStyle": "light",
     "icon": "../../assets/brand/zoe-mark-transparent.png",
     "plugins": [
+      "./plugins/with-presage-manifest",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Zoe to transcribe speech on this device into an editable chat draft."
+        }
+      ],
       [
         "expo-build-properties",
         {

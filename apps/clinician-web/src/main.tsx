@@ -4,6 +4,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 import { assertEnvelopeMatchesGrant, decodeEnvelope, decryptShare, type AuthorizedGrantMetadata, type SharePayload } from "@zoe/share-contract";
 import "./styles.css";
 import { canCommitDecryptedContent, captureAndScrubShareReference, createOneShotReference, stateAfterAuthChange, type ShareReference } from "./sessionGuard";
+import zoeMarkUrl from "../../../assets/brand/zoe-mark-transparent.png";
 
 const projectUrl = import.meta.env.VITE_SUPABASE_URL || "https://ixwpotnpnlotjecmjbnb.supabase.co";
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
@@ -141,14 +142,14 @@ function App() {
   return (
     <main>
       <header className="site-header">
-        <a className="brand" href="/" aria-label="Zoe clinician viewer"><span className="mark">Z</span><span>Zoe</span></a>
+        <a className="brand" href="/" aria-label="Zoe clinician viewer"><img className="brand-mark" src={zoeMarkUrl} alt="" /><span>Zoe</span></a>
         <div className="header-actions"><span className="prototype">Clinician viewer · identity not verified</span>{session ? <button className="sign-out" onClick={() => void signOut()}>Sign out</button> : null}</div>
       </header>
       {state.status === "signed-out" ? (
         <section className="access-shell">
-          <div className="intro-panel"><p className="eyebrow">INVITED RECORDS</p><h1>Sign in before opening the patient’s link.</h1><p>Zoe shares an encrypted selection—not a full chart. This MVP verifies the recipient account through Supabase Auth, but does not verify a clinical license.</p></div>
+          <div className="intro-panel"><p className="eyebrow">Invited records</p><h1>Sign in before opening the patient’s link.</h1><p>Zoe shares an encrypted selection—not a full chart. This MVP verifies the recipient account through Supabase Auth, but does not verify a clinical license.</p></div>
           <form className="sign-in" onSubmit={(event) => { event.preventDefault(); void (otpSent ? verifyOtp() : requestOtp()); }}>
-            <p className="eyebrow">EMAIL ONE-TIME CODE</p><h2>{otpSent ? "Enter your code" : "Clinician sign in"}</h2>
+            <p className="eyebrow">Email one-time code</p><h2>{otpSent ? "Enter your code" : "Clinician sign in"}</h2>
             <label htmlFor="email">Email</label><input id="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required disabled={otpSent} autoComplete="email" />
             {otpSent ? <><label htmlFor="otp">One-time code</label><input id="otp" inputMode="numeric" value={otp} onChange={(event) => setOtp(event.target.value)} required autoComplete="one-time-code" /></> : null}
             <button type="submit">{otpSent ? "Verify code" : "Send code"}</button>
@@ -157,13 +158,13 @@ function App() {
           </form>
         </section>
       ) : null}
-      {state.status === "ready-to-open" ? <section className="ready-grid"><div className="status"><h2>Signed in</h2><p>{pendingReference.current ? "The link key was removed from the address bar and is held only in this page until you open it." : "Reopen the original patient link to load its one-time fragment key."}</p><button disabled={!pendingReference.current} onClick={() => void openShare()}>Open encrypted share</button></div><form className="enrollment" onSubmit={(event) => { event.preventDefault(); void saveEnrollment(); }}><p className="eyebrow">RECIPIENT DIRECTORY</p><h2>Self-declared profile</h2><p>This makes your authenticated account discoverable for shares. Zoe does not verify identity, employment, or licensure.</p><label htmlFor="display-name">Display name</label><input id="display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /><label htmlFor="organization">Organization</label><input id="organization" value={organization} onChange={(event) => setOrganization(event.target.value)} required /><label className="checkbox-row"><input type="checkbox" checked={acceptingShares} onChange={(event) => setAcceptingShares(event.target.checked)} />Accept new Zoe shares</label><button type="submit">Save recipient profile</button>{enrollmentMessage ? <small>{enrollmentMessage}</small> : null}<small>Account ID: {session?.user.id}</small></form></section> : null}
+      {state.status === "ready-to-open" ? <section className="ready-grid"><div className="status"><h2>Signed in</h2><p>{pendingReference.current ? "The link key was removed from the address bar and is held only in this page until you open it." : "Reopen the original patient link to load its one-time fragment key."}</p><button disabled={!pendingReference.current} onClick={() => void openShare()}>Open encrypted share</button></div><form className="enrollment" onSubmit={(event) => { event.preventDefault(); void saveEnrollment(); }}><p className="eyebrow">Recipient directory</p><h2>Self-declared profile</h2><p>This makes your authenticated account discoverable for shares. Zoe does not verify identity, employment, or licensure.</p><label htmlFor="display-name">Display name</label><input id="display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /><label htmlFor="organization">Organization</label><input id="organization" value={organization} onChange={(event) => setOrganization(event.target.value)} required /><label className="checkbox-row"><input type="checkbox" checked={acceptingShares} onChange={(event) => setAcceptingShares(event.target.checked)} />Accept new Zoe shares</label><button type="submit">Save recipient profile</button>{enrollmentMessage ? <small>{enrollmentMessage}</small> : null}<small>Account ID: {session?.user.id}</small></form></section> : null}
       {state.status === "opening" || state.status === "checking" ? <section className="status"><div className="spinner" /><p>{state.status === "checking" ? "Checking sign-in…" : "Checking grant and decrypting in this browser…"}</p></section> : null}
       {state.status === "error" ? <section className="status error"><h2>Share unavailable</h2><p>{state.message}</p><p>No record content was rendered.</p></section> : null}
       {state.status === "ready" ? (
         <section className="viewer">
-          <aside><p className="eyebrow">PATIENT-SELECTED</p><h1>{state.payload.patientDisplayName}</h1><p>Shared {new Date(state.payload.createdAt).toLocaleString()}</p><div className="notice">Clinician account matched the encrypted recipient. Clinical license remains unverified.</div></aside>
-          <div className="record-list"><div className="list-head"><div><p className="eyebrow">SELECTED RECORDS</p><h2>{state.payload.records.length} items</h2></div><span className="secure">Decrypted locally</span></div>{state.payload.records.map((record) => <article key={record.id}><div className="record-meta"><span>{record.kind}</span><span>{record.source}</span></div><h3>{record.title}</h3><p>{record.detail}</p><time>{new Date(record.recordedAt).toLocaleDateString()}</time></article>)}</div>
+          <aside><p className="eyebrow">Patient-selected</p><h1>{state.payload.patientDisplayName}</h1><p>Shared {new Date(state.payload.createdAt).toLocaleString()}</p><div className="notice">Clinician account matched the encrypted recipient. Clinical license remains unverified.</div></aside>
+          <div className="record-list"><div className="list-head"><div><p className="eyebrow">Selected records</p><h2>{state.payload.records.length} items</h2></div><span className="secure">Decrypted locally</span></div>{state.payload.records.map((record) => <article key={record.id}><div className="record-meta"><span>{record.kind}</span><span>{record.source}</span></div><h3>{record.title}</h3><p>{record.detail}</p><time>{new Date(record.recordedAt).toLocaleDateString()}</time></article>)}</div>
         </section>
       ) : null}
     </main>

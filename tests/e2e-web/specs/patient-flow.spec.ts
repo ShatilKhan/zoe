@@ -5,7 +5,7 @@ test("patient can add a reviewed record and ask a sourced question", async ({ pa
   await page.getByRole("button", { name: "Unlock synthetic preview" }).click();
   await expect(page.getByText("Good morning, Mira")).toBeVisible();
 
-  await page.getByRole("tab", { name: "Records" }).click();
+  await page.getByRole("button", { name: "Records", exact: true }).click();
   await page.getByRole("button", { name: "Add manually" }).click();
   await page.getByLabel("Name").fill("Synthetic asthma note");
   await page.getByLabel("Details").fill("Synthetic demo: inhaler reviewed at a clinic visit.");
@@ -14,7 +14,7 @@ test("patient can add a reviewed record and ask a sourced question", async ({ pa
   await expect(page.getByText("Saved as a confirmed patient-reviewed record.")).toBeVisible();
   await expect(page.getByText("Synthetic asthma note")).toBeVisible();
 
-  await page.getByRole("tab", { name: "Ask" }).click();
+  await page.getByRole("button", { name: "Ask", exact: true }).click();
   await page.getByRole("textbox", { name: "Question", exact: true }).fill("What medicine am I taking?");
   await page.getByRole("button", { name: "Send question" }).click();
   await expect(page.getByText(/Metformin 500 mg:/)).toBeVisible();
@@ -24,8 +24,8 @@ test("patient can add a reviewed record and ask a sourced question", async ({ pa
 test("synthetic preview cannot claim or create a cloud share", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Unlock synthetic preview" }).click();
-  await page.getByRole("tab", { name: "Share" }).click();
-  await expect(page.getByText("Synthetic preview session: upload and share creation are disabled.")).toBeVisible();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  await expect(page.getByText("Cloud sharing is unavailable in synthetic preview.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Encrypt and upload selected records" })).toBeDisabled();
 });
 
