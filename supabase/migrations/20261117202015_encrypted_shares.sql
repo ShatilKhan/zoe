@@ -7,8 +7,27 @@ create table public.share_grants (
   revoked_at timestamptz,
   created_at timestamptz not null default now(),
   constraint share_grants_distinct_accounts check (patient_id <> recipient_id),
-  constraint share_grants_expiry_after_creation check (expires_at > created_at)
+  constraint share_grants_expiry_after_creation check (expires_at > created_at),
+  constraint share_grants_max_ttl check (expires_at <= created_at + interval '24 hours')
 );
+
+create function public.enforce_share_grant_server_fields()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  new.created_at := pg_catalog.clock_timestamp();
+  return new;
+end;
+$$;
+
+revoke all on function public.enforce_share_grant_server_fields() from public, anon, authenticated;
+
+create trigger enforce_share_grant_server_fields_before_insert
+before insert on public.share_grants
+for each row execute function public.enforce_share_grant_server_fields();
 
 create table public.share_recipients (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -41,7 +60,13 @@ alter table public.share_grants enable row level security;
 create policy "patients create scoped grants"
 on public.share_grants for insert
 to authenticated
-with check ((select auth.uid()) = patient_id);
+with check (
+  (select auth.uid()) = patient_id
+  and exists (
+    select 1 from public.share_recipients recipient
+    where recipient.user_id = recipient_id and recipient.accepting_shares = true
+  )
+);
 
 create policy "participants read grant metadata"
 on public.share_grants for select
@@ -84,15 +109,17 @@ create trigger protect_share_grant_identity_before_update
 before update on public.share_grants
 for each row execute function public.protect_share_grant_identity();
 
-grant select, insert, update on public.share_grants to authenticated;
-revoke all on public.share_grants from anon;
+revoke all on public.share_grants from anon, authenticated;
+grant select on public.share_grants to authenticated;
+grant insert (patient_id, recipient_id, object_id, expires_at) on public.share_grants to authenticated;
+grant update (revoked_at) on public.share_grants to authenticated;
 
 create table public.share_access_audit (
   id bigint generated always as identity primary key,
   grant_id uuid not null references public.share_grants(id) on delete cascade,
   actor_id uuid not null references auth.users(id) on delete cascade,
   accessed_at timestamptz not null default now(),
-  outcome text not null check (outcome in ('downloaded', 'denied'))
+  outcome text not null check (outcome = 'downloaded')
 );
 
 alter table public.share_access_audit enable row level security;

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Image,
   ImageBackground,
   Platform,
@@ -19,10 +20,13 @@ import { calculateNutrition, matchFood, parseExplicitGrams } from "@zoe/nutritio
 import { SYNTHETIC_RECORDS, answerFromRecords, confirmRecord, createDraftRecord, type PatientRecord, type RecordKind } from "@zoe/records";
 import { getNativeCapabilities } from "./src/platform/capabilities";
 import { cloudAuthAvailable, listShareGrants, requestEmailOtp, resolveShareRecipient, revokeShareGrant, uploadEncryptedShare, verifyEmailOtp, type CloudGrant, type CloudSession, type ResolvedRecipient } from "./src/platform/cloud";
-import { openVault, type Vault } from "./src/platform/vault";
+import { openVault, VaultAccessError, type Vault, type VaultOpenOptions } from "./src/platform/vault";
+import { UnlockRateLimiter, validateNewPassphrase } from "./src/platform/vaultPolicy";
+import { recordsForOpenedVault } from "./src/platform/recordBootstrap";
+import { lockThenClear, migrationBackAction, migrationRequiresCompletion } from "./src/platform/appLifecycle";
 
 type Screen = "home" | "records" | "ask" | "wellness" | "share";
-type AccessState = "intro" | "login" | "unlocking" | "ready";
+type AccessState = "intro" | "login" | "passphrase" | "migration" | "unlocking" | "ready";
 
 const brandMark = require("../../assets/brand/zoe-mark-transparent.png");
 const colors = {
@@ -51,7 +55,7 @@ function Button({ label, onPress, variant = "primary", disabled = false, accessi
   );
 }
 
-function Field({ label, value, onChangeText, placeholder, multiline = false }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean }) {
+function Field({ label, value, onChangeText, placeholder, multiline = false, secureTextEntry = false }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean; secureTextEntry?: boolean }) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.label}>{label}</Text>
@@ -62,10 +66,50 @@ function Field({ label, value, onChangeText, placeholder, multiline = false }: {
         placeholder={placeholder}
         placeholderTextColor="#87958F"
         multiline={multiline}
+        secureTextEntry={secureTextEntry}
         style={[styles.input, multiline && styles.multiline]}
       />
     </View>
   );
+}
+
+function PassphraseAccess({ accountId, setup, error, onSubmit, onCancel, cancelLabel = "Back" }: { accountId: string; setup: boolean; error: string; onSubmit: (passphrase: string) => void; onCancel: () => void; cancelLabel?: string }) {
+  const [passphrase, setPassphrase] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [localError, setLocalError] = useState("");
+  const limiter = useRef(new UnlockRateLimiter()).current;
+
+  function submit() {
+    const wait = limiter.remainingMs();
+    if (wait > 0) { setLocalError(`Wait ${Math.ceil(wait / 1000)} seconds before trying again.`); return; }
+    if (setup) {
+      const strengthError = validateNewPassphrase(passphrase, accountId);
+      if (strengthError) { setLocalError(strengthError); return; }
+      if (passphrase !== confirmation) { setLocalError("The two passphrases do not match."); return; }
+    }
+    setLocalError("");
+    onSubmit(passphrase);
+    setPassphrase("");
+    setConfirmation("");
+  }
+
+  useEffect(() => {
+    if (!error) return;
+    const delay = limiter.recordFailure();
+    if (delay > 0) setLocalError(`Too many failed attempts. Wait ${Math.ceil(delay / 1000)} seconds. This delay does not protect a copied database from offline guessing.`);
+  }, [error, limiter]);
+
+  return <SafeAreaView style={styles.accessPage}><View style={styles.loginCard}>
+    <Text style={styles.eyebrow}>{setup ? "NEW DEVICE-BOUND VAULT" : "PRIVATE VAULT"}</Text>
+    <Text style={styles.sectionTitle}>{setup ? "Create a strong passphrase" : "Enter your vault passphrase"}</Text>
+    <Text style={styles.supporting}>{setup ? "Zoe combines this passphrase with a random account-specific secret held by Android Keystore. The passphrase alone cannot open a copied database." : `Unlock ${accountId}. The passphrase is processed only on this device.`}</Text>
+    <Field label="Vault passphrase" value={passphrase} onChangeText={setPassphrase} secureTextEntry placeholder={setup ? "16+ varied characters or 4 unrelated words" : "Your vault passphrase"} />
+    {setup ? <Field label="Confirm vault passphrase" value={confirmation} onChangeText={setConfirmation} secureTextEntry placeholder="Enter it again" /> : null}
+    <View style={styles.notice}><Text style={styles.cardTitle}>No recovery</Text><Text style={styles.cardCopy}>Zoe never uploads this passphrase or vault key. Uninstalling the app, clearing its storage, losing the Keystore secret, or forgetting the passphrase makes this local vault unrecoverable.</Text></View>
+    {localError || error ? <Text style={styles.error}>{localError || error}</Text> : null}
+    <Button label={setup ? "Create encrypted vault" : "Unlock encrypted vault"} onPress={submit} disabled={!passphrase || (setup && !confirmation)} />
+    <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
+  </View></SafeAreaView>;
 }
 
 function Intro({ onDone }: { onDone: () => void }) {
@@ -382,13 +426,13 @@ function Share({ records, cloudSession }: { records: PatientRecord[]; cloudSessi
     <ScrollView contentContainerStyle={styles.page}>
       <Header title="Share selected records" subtitle="Zoe encrypts the bundle before it leaves this device. A downloaded copy cannot be revoked." />
       <View style={styles.formCard}>
-        <Field label="Recipient Supabase user ID" value={recipient} onChangeText={(value) => { setRecipient(value); setResolvedRecipient(null); setShareConfirmed(false); }} placeholder="Authenticated clinician UUID" />
+        <Field label="Recipient Supabase user ID" value={recipient} onChangeText={(value) => { setRecipient(value); setResolvedRecipient(null); setShareConfirmed(false); setShareUrl(""); }} placeholder="Authenticated clinician UUID" />
         <Button label="Resolve clinician account" variant="secondary" disabled={!cloudSession} onPress={() => void resolveRecipient()} />
-        {resolvedRecipient ? <View style={styles.notice}><Text style={styles.cardTitle}>{resolvedRecipient.displayName}</Text><Text style={styles.cardCopy}>{resolvedRecipient.organization}</Text><Text style={styles.source}>Verified accepting profile · {resolvedRecipient.userId}</Text></View> : null}
+        {resolvedRecipient ? <View style={styles.notice}><Text style={styles.cardTitle}>{resolvedRecipient.displayName}</Text><Text style={styles.cardCopy}>{resolvedRecipient.organization}</Text><Text style={styles.source}>Self-declared accepting profile · {resolvedRecipient.userId}</Text></View> : null}
         <Text style={styles.label}>Choose records</Text>
         {records.map((record) => {
           const active = selected.includes(record.id);
-          return <Pressable key={record.id} onPress={() => setSelected((current) => active ? current.filter((id) => id !== record.id) : [...current, record.id])} style={[styles.selectRow, active && styles.selectRowActive]}><Text style={styles.checkbox}>{active ? "✓" : ""}</Text><View style={styles.flex}><Text style={styles.cardTitle}>{record.title}</Text><Text style={styles.source}>{record.source}</Text></View></Pressable>;
+          return <Pressable key={record.id} onPress={() => { setShareConfirmed(false); setShareUrl(""); setSelected((current) => active ? current.filter((id) => id !== record.id) : [...current, record.id]); }} style={[styles.selectRow, active && styles.selectRowActive]}><Text style={styles.checkbox}>{active ? "✓" : ""}</Text><View style={styles.flex}><Text style={styles.cardTitle}>{record.title}</Text><Text style={styles.source}>{record.source}</Text></View></Pressable>;
         })}
         {resolvedRecipient ? <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: shareConfirmed }} onPress={() => setShareConfirmed((value) => !value)} style={[styles.selectRow, shareConfirmed && styles.selectRowActive]}><Text style={styles.checkbox}>{shareConfirmed ? "✓" : ""}</Text><Text style={styles.cardCopy}>Share {selected.length} selected record{selected.length === 1 ? "" : "s"} with {resolvedRecipient.displayName} at {resolvedRecipient.organization}.</Text></Pressable> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -413,6 +457,7 @@ function Navigation({ screen, setScreen }: { screen: Screen; setScreen: (screen:
     { screen: "home", label: "Home", icon: "⌂" },
     { screen: "records", label: "Records", icon: "▤" },
     { screen: "ask", label: "Ask", icon: "✦" },
+    { screen: "wellness", label: "Wellness", icon: "◌" },
     { screen: "share", label: "Share", icon: "↗" }
   ];
   return <View style={styles.nav}>{items.map((item) => <Pressable key={item.screen} onPress={() => setScreen(item.screen)} accessibilityRole="tab" accessibilityState={{ selected: item.screen === screen }} style={styles.navItem}><Text style={[styles.navIcon, item.screen === screen && styles.navActive]}>{item.icon}</Text><Text style={[styles.navLabel, item.screen === screen && styles.navActive]}>{item.label}</Text></Pressable>)}</View>;
@@ -426,35 +471,92 @@ export default function App() {
   const [userId, setUserId] = useState("");
   const [cloudSession, setCloudSession] = useState<CloudSession | null>(null);
   const [error, setError] = useState("");
+  const [pendingAccess, setPendingAccess] = useState<{ accountId: string; session: CloudSession | null; setup: boolean } | null>(null);
+  const [migrationRecoveryRequired, setMigrationRecoveryRequired] = useState(false);
 
-  async function unlock(accountId: string, session: CloudSession | null = null) {
+  async function unlock(accountId: string, session: CloudSession | null = null, options: VaultOpenOptions = {}) {
     setAccess("unlocking");
     setError("");
     try {
-      const opened = await openVault(accountId);
+      const opened = await openVault(accountId, options);
       const saved = await opened.loadRecords();
-      const initial = saved.length > 0 ? saved : SYNTHETIC_RECORDS;
-      if (saved.length === 0) await opened.saveRecords(initial);
+      const initial = recordsForOpenedVault(saved, session === null, opened.isNew, SYNTHETIC_RECORDS);
+      if (opened.isNew && initial.length > 0) await opened.saveRecords(initial);
       setVault(opened);
+      setPendingAccess(null);
       setUserId(accountId);
       setCloudSession(session);
       setRecords(initial);
       setAccess("ready");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The vault could not open.");
-      setAccess("login");
+      const message = caught instanceof Error ? caught.message : "The vault could not open.";
+      setError(message);
+      if (caught instanceof VaultAccessError && (caught.reason === "setup_required" || caught.reason === "passphrase_required" || caught.reason === "invalid_passphrase")) {
+        setPendingAccess({ accountId, session, setup: caught.reason === "setup_required" || options.setupPassphrase === true });
+        setAccess("passphrase");
+      } else {
+        setAccess("login");
+      }
     }
   }
 
   async function signOut() {
-    await vault?.lock();
-    setVault(null);
-    setRecords([]);
-    setUserId("");
-    setCloudSession(null);
-    setScreen("home");
-    setAccess("login");
+    await lockThenClear(vault ? () => vault.lock() : undefined, () => {
+      setVault(null);
+      setRecords([]);
+      setUserId("");
+      setCloudSession(null);
+      setPendingAccess(null);
+      setMigrationRecoveryRequired(false);
+      setError("");
+      setScreen("home");
+      setAccess("login");
+    });
   }
+
+  async function migrateVault(passphrase: string) {
+    if (migrationRecoveryRequired) {
+      setAccess("unlocking");
+      setError("");
+      try {
+        const reopened = await openVault(userId, { passphrase });
+        const saved = await reopened.loadRecords();
+        setVault(reopened);
+        setRecords(saved);
+        setMigrationRecoveryRequired(false);
+        setAccess("ready");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "Vault migration recovery failed without changing the encrypted vault.");
+        setAccess("migration");
+      }
+      return;
+    }
+    if (!vault?.migrateToPassphrase) { setError("This vault cannot be migrated in its current state."); return; }
+    setAccess("unlocking");
+    setError("");
+    try {
+      const migrated = await vault.migrateToPassphrase(passphrase);
+      setVault(migrated);
+      setMigrationRecoveryRequired(false);
+      setAccess("ready");
+    } catch (caught) {
+      const recoveryRequired = migrationRequiresCompletion(caught);
+      setError(caught instanceof Error ? caught.message : "Vault migration failed without replacing the existing key.");
+      setMigrationRecoveryRequired(recoveryRequired);
+      if (recoveryRequired) {
+        setVault(null);
+        setRecords([]);
+      }
+      setAccess("migration");
+    }
+  }
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") void signOut();
+    });
+    return () => subscription.remove();
+  }, [access, vault]);
 
   async function saveRecord(record: PatientRecord) {
     if (!vault) throw new Error("Vault is locked.");
@@ -473,11 +575,17 @@ export default function App() {
 
   if (access === "intro") return <><StatusBar style="dark" /><Intro onDone={() => setAccess("login")} /></>;
   if (access === "login") return <><StatusBar style="dark" /><Login onPreview={(accountId) => void unlock(accountId)} onCloud={(session) => void unlock(session.userId, session)} error={error} /></>;
+  if (access === "passphrase" && pendingAccess) return <><StatusBar style="dark" /><PassphraseAccess accountId={pendingAccess.accountId} setup={pendingAccess.setup} error={error} onSubmit={(passphrase) => void unlock(pendingAccess.accountId, pendingAccess.session, { passphrase, setupPassphrase: pendingAccess.setup })} onCancel={() => { setPendingAccess(null); setError(""); setAccess("login"); }} /></>;
+  if (access === "migration") return <><StatusBar style="dark" /><PassphraseAccess accountId={userId} setup={!migrationRecoveryRequired} error={error} onSubmit={(passphrase) => void migrateVault(passphrase)} cancelLabel={migrationRecoveryRequired ? "Lock vault" : "Back"} onCancel={() => {
+    if (migrationBackAction(migrationRecoveryRequired) === "sign-out") { void signOut(); return; }
+    setError("");
+    setAccess("ready");
+  }} /></>;
   if (access === "unlocking") return <View style={styles.loading}><ActivityIndicator size="large" color={colors.moss} /><Text style={styles.cardCopy}>Opening private vault…</Text></View>;
   return (
     <SafeAreaView style={styles.shell}>
       <StatusBar style="dark" />
-      <View style={styles.sessionBar}><Text style={styles.source}>{cloudSession ? "Supabase authenticated" : "Synthetic preview"} · {userId}</Text><Pressable accessibilityRole="button" onPress={() => void signOut()}><Text style={styles.lockText}>Lock vault</Text></Pressable></View>
+      <View style={styles.sessionBar}><Text style={styles.source}>{cloudSession ? "Supabase authenticated" : "Synthetic preview"} · {userId}</Text><View style={styles.sessionActions}>{vault?.protection === "biometric" ? <Pressable accessibilityRole="button" onPress={() => { setError(""); setMigrationRecoveryRequired(false); setAccess("migration"); }}><Text style={styles.lockText}>Use passphrase</Text></Pressable> : null}<Pressable accessibilityRole="button" onPress={() => void signOut()}><Text style={styles.lockText}>Lock vault</Text></Pressable></View></View>
       <View style={styles.content}>{body}</View>
       <Navigation screen={screen} setScreen={setScreen} />
     </SafeAreaView>
@@ -504,5 +612,6 @@ const styles = StyleSheet.create({
   consentCard: { backgroundColor: colors.paper, padding: 24, borderRadius: 27, borderColor: colors.line, borderWidth: 1, alignItems: "center", gap: 13 }, pulseGlyph: { color: colors.orange, fontSize: 80 }, unavailable: { backgroundColor: "#F9ECE9", borderRadius: 13, padding: 12, width: "100%" },
   selectRow: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 15, padding: 12 }, selectRowActive: { backgroundColor: colors.mint, borderColor: "#9CB9A9" }, checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, borderColor: colors.moss, color: colors.moss, textAlign: "center", lineHeight: 20, fontWeight: "800" }, successCard: { backgroundColor: colors.ink, padding: 20, borderRadius: 22, gap: 10 }, shareLink: { color: "white", fontSize: 12, lineHeight: 17 },
   sessionBar: { minHeight: 34, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: colors.mint, borderBottomColor: colors.line, borderBottomWidth: 1 }, lockText: { color: colors.moss, fontWeight: "800", fontSize: 12 },
+  sessionActions: { flexDirection: "row", alignItems: "center", gap: 16 },
   nav: { flexDirection: "row", backgroundColor: colors.paper, borderTopColor: colors.line, borderTopWidth: 1, minHeight: 68, paddingBottom: Platform.OS === "ios" ? 10 : 3, justifyContent: "space-around" }, navItem: { alignItems: "center", justifyContent: "center", minWidth: 66, minHeight: 58, gap: 2 }, navIcon: { color: colors.muted, fontSize: 20 }, navLabel: { color: colors.muted, fontSize: 11, fontWeight: "600" }, navActive: { color: colors.orange }, loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.cream, gap: 14 }
 });

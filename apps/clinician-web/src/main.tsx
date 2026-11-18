@@ -1,9 +1,9 @@
-import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
-import { decodeEnvelope, decryptShare, type SharePayload } from "@zoe/share-contract";
+import { assertEnvelopeMatchesGrant, decodeEnvelope, decryptShare, type AuthorizedGrantMetadata, type SharePayload } from "@zoe/share-contract";
 import "./styles.css";
-import { canCommitDecryptedContent, stateAfterAuthChange } from "./sessionGuard";
+import { canCommitDecryptedContent, captureAndScrubShareReference, createOneShotReference, stateAfterAuthChange, type ShareReference } from "./sessionGuard";
 
 const projectUrl = import.meta.env.VITE_SUPABASE_URL || "https://ixwpotnpnlotjecmjbnb.supabase.co";
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
@@ -16,23 +16,31 @@ type ViewerState =
   | { status: "ready"; payload: SharePayload }
   | { status: "error"; message: string };
 
-function shareReference() {
-  const objectId = new URLSearchParams(window.location.search).get("objectId") ?? "";
-  const key = decodeURIComponent(window.location.hash.slice(1));
-  if (!/^[0-9a-f-]{36}$/i.test(objectId) || !key) throw new Error("This link is missing its encrypted share reference or fragment key.");
-  return { objectId, key };
+let initialReference: ShareReference | null = null;
+let capturedReferenceError = "";
+try {
+  initialReference = captureAndScrubShareReference(window.location, (url) => history.replaceState(null, "", url));
+} catch (error) {
+  capturedReferenceError = error instanceof Error ? error.message : "The encrypted share link is invalid.";
 }
+const moduleReference = createOneShotReference(initialReference);
+initialReference = null;
 
-async function downloadAndDecrypt(client: SupabaseClient, session: Session): Promise<SharePayload> {
-  const { objectId, key } = shareReference();
-  history.replaceState(null, "", `${window.location.pathname}?objectId=${encodeURIComponent(objectId)}`);
+async function downloadAndDecrypt(client: SupabaseClient, session: Session, reference: ShareReference): Promise<SharePayload> {
+  const { objectId, key } = reference;
   const response = await fetch(`${projectUrl}/functions/v1/download-share`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${session.access_token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ objectId })
   });
   if (!response.ok) throw new Error(response.status === 404 ? "This share is expired, revoked, or unavailable." : "The encrypted share could not be downloaded.");
-  const envelope = decodeEnvelope(new TextDecoder().decode(await response.arrayBuffer()));
+  const body = await response.json() as { encodedEnvelope?: unknown; grant?: Partial<AuthorizedGrantMetadata> };
+  if (typeof body.encodedEnvelope !== "string" || !body.grant || typeof body.grant.grantId !== "string" || typeof body.grant.patientId !== "string" || typeof body.grant.recipientId !== "string" || typeof body.grant.objectId !== "string" || typeof body.grant.expiresAt !== "string") {
+    throw new Error("The share authorization response was invalid.");
+  }
+  const envelope = decodeEnvelope(body.encodedEnvelope);
+  const grant = body.grant as AuthorizedGrantMetadata;
+  assertEnvelopeMatchesGrant(envelope, grant);
   const { data, error } = await client.auth.getUser();
   if (error || !data.user) throw new Error("The signed-in clinician account could not be verified.");
   return decryptShare(envelope, key, data.user.id);
@@ -46,7 +54,12 @@ function App() {
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [organization, setOrganization] = useState("");
+  const [acceptingShares, setAcceptingShares] = useState(true);
+  const [enrollmentMessage, setEnrollmentMessage] = useState("");
   const viewerUserId = useRef<string | null>(null);
+  const pendingReference = useRef<ShareReference | null>(moduleReference.take());
 
   useEffect(() => {
     if (!client) {
@@ -56,16 +69,17 @@ function App() {
     void client.auth.getSession().then(({ data }) => {
       setSession(data.session);
       viewerUserId.current = data.session?.user.id ?? null;
-      if (data.session) setState({ status: "ready-to-open" });
+      if (data.session) setState(capturedReferenceError ? { status: "error", message: capturedReferenceError } : { status: "ready-to-open" });
       else {
-        const hadKey = Boolean(window.location.hash);
-        if (hadKey) history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        const hadKey = pendingReference.current !== null;
+        pendingReference.current = null;
         setState({ status: "signed-out", keyWasDiscarded: hadKey });
       }
     });
     const { data: subscription } = client.auth.onAuthStateChange((_event, nextSession) => {
       const nextUserId = nextSession?.user.id ?? null;
       const previousUserId = viewerUserId.current;
+      if (previousUserId !== nextUserId) pendingReference.current = null;
       viewerUserId.current = nextUserId;
       setSession(nextSession);
       setState((current) => stateAfterAuthChange(current, previousUserId, nextUserId));
@@ -93,10 +107,13 @@ function App() {
 
   async function openShare() {
     if (!client || !session) return;
+    const reference = pendingReference.current;
+    pendingReference.current = null;
+    if (!reference) { setState({ status: "error", message: "The fragment key is no longer in memory. Reopen the original patient link." }); return; }
     const openingUserId = session.user.id;
     setState({ status: "opening" });
     try {
-      const payload = await downloadAndDecrypt(client, session);
+      const payload = await downloadAndDecrypt(client, session, reference);
       if (!canCommitDecryptedContent(openingUserId, viewerUserId.current)) throw new Error("The clinician account changed while the share was opening.");
       setState({ status: "ready", payload });
     } catch (error) {
@@ -104,11 +121,28 @@ function App() {
     }
   }
 
+  async function saveEnrollment() {
+    if (!client || !session) return;
+    setEnrollmentMessage("");
+    const name = displayName.trim();
+    const org = organization.trim();
+    if (name.length < 2 || org.length < 2) { setEnrollmentMessage("Name and organization are required."); return; }
+    const { error } = await client.from("share_recipients").upsert({ user_id: session.user.id, display_name: name, organization: org, accepting_shares: acceptingShares, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    setEnrollmentMessage(error ? error.message : "Self-declared recipient profile saved.");
+  }
+
+  async function signOut() {
+    if (!client) return;
+    pendingReference.current = null;
+    setState({ status: "signed-out", keyWasDiscarded: false });
+    await client.auth.signOut();
+  }
+
   return (
     <main>
       <header className="site-header">
         <a className="brand" href="/" aria-label="Zoe clinician viewer"><span className="mark">Z</span><span>Zoe</span></a>
-        <span className="prototype">Clinician viewer · identity not verified</span>
+        <div className="header-actions"><span className="prototype">Clinician viewer · identity not verified</span>{session ? <button className="sign-out" onClick={() => void signOut()}>Sign out</button> : null}</div>
       </header>
       {state.status === "signed-out" ? (
         <section className="access-shell">
@@ -123,7 +157,7 @@ function App() {
           </form>
         </section>
       ) : null}
-      {state.status === "ready-to-open" ? <section className="status"><h2>Signed in</h2><p>Open the original patient link now. If this page still has a fragment key, continue below.</p><button onClick={() => void openShare()}>Open encrypted share</button></section> : null}
+      {state.status === "ready-to-open" ? <section className="ready-grid"><div className="status"><h2>Signed in</h2><p>{pendingReference.current ? "The link key was removed from the address bar and is held only in this page until you open it." : "Reopen the original patient link to load its one-time fragment key."}</p><button disabled={!pendingReference.current} onClick={() => void openShare()}>Open encrypted share</button></div><form className="enrollment" onSubmit={(event) => { event.preventDefault(); void saveEnrollment(); }}><p className="eyebrow">RECIPIENT DIRECTORY</p><h2>Self-declared profile</h2><p>This makes your authenticated account discoverable for shares. Zoe does not verify identity, employment, or licensure.</p><label htmlFor="display-name">Display name</label><input id="display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} required /><label htmlFor="organization">Organization</label><input id="organization" value={organization} onChange={(event) => setOrganization(event.target.value)} required /><label className="checkbox-row"><input type="checkbox" checked={acceptingShares} onChange={(event) => setAcceptingShares(event.target.checked)} />Accept new Zoe shares</label><button type="submit">Save recipient profile</button>{enrollmentMessage ? <small>{enrollmentMessage}</small> : null}<small>Account ID: {session?.user.id}</small></form></section> : null}
       {state.status === "opening" || state.status === "checking" ? <section className="status"><div className="spinner" /><p>{state.status === "checking" ? "Checking sign-in…" : "Checking grant and decrypting in this browser…"}</p></section> : null}
       {state.status === "error" ? <section className="status error"><h2>Share unavailable</h2><p>{state.message}</p><p>No record content was rendered.</p></section> : null}
       {state.status === "ready" ? (
@@ -136,4 +170,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+createRoot(document.getElementById("root")!).render(<App />);

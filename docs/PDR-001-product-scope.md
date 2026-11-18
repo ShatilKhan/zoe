@@ -68,4 +68,4 @@ The full behavior matrix, data sources, test thresholds, and threat analysis are
 
 ## Change control
 
-The owner authorized implementation and incremental commits on 18 November 2026. This supersedes the planning-only sentence in the earlier draft spec and local event history. The event tail in the local, Git-excluded knowledge vault preserves the sequence; this PDR records the current product target. Any change to readable-data egress, medical advice boundary, clinician identity claim, or share scope needs an explicit PDR revision before release.
+The owner authorized implementation and incremental commits on 18 November 2026. This supersedes the planning-only sentence in the earlier draft spec. This PDR records the current product target. Any change to readable-data egress, medical advice boundary, clinician identity claim, or share scope needs an explicit PDR revision before release.

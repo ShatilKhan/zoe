@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeEnvelope, decryptShare, encodeEnvelope, encryptShare, type ShareMetadata, type SharePayload } from "../src/index";
+import { assertEnvelopeMatchesGrant, decodeEnvelope, decryptShare, encodeEnvelope, encryptShare, type ShareMetadata, type SharePayload } from "../src/index";
 
 const metadata: ShareMetadata = {
   patientId: "synthetic-patient",
@@ -49,5 +49,36 @@ describe("encrypted share contract", () => {
     bytes[0] = (bytes[0] ?? 0) ^ 1;
     const tamperedCiphertext = btoa(String.fromCharCode(...bytes));
     await expect(decryptShare({ ...encrypted.envelope, ciphertext: tamperedCiphertext }, encrypted.key, metadata.recipientId)).rejects.toThrow();
+  });
+
+  it("binds every encrypted metadata field to the server-authorized grant", async () => {
+    const encrypted = await encryptShare(payload, metadata);
+    const grant = { grantId: "grant-1", ...metadata };
+    expect(() => assertEnvelopeMatchesGrant(encrypted.envelope, grant)).not.toThrow();
+    expect(() => assertEnvelopeMatchesGrant(encrypted.envelope, { ...grant, expiresAt: "2099-01-01T00:00:00Z" })).not.toThrow();
+    for (const changed of [
+      { ...grant, patientId: "other-patient" },
+      { ...grant, recipientId: "other-recipient" },
+      { ...grant, objectId: "other-object" },
+      { ...grant, expiresAt: "2098-01-01T00:00:00.000Z" }
+    ]) {
+      expect(() => assertEnvelopeMatchesGrant(encrypted.envelope, changed)).toThrow("does not match");
+    }
+  });
+
+  it("decrypts the fixed Android Kotlin AES-GCM interoperability vector", async () => {
+    const vectorMetadata: ShareMetadata = { patientId: "patient-a", recipientId: "clinician-a", objectId: "object-a", expiresAt: "2099-01-01T00:00:00.000Z" };
+    await expect(decryptShare({
+      version: 1,
+      algorithm: "AES-256-GCM",
+      keyId: "interop-key",
+      metadata: vectorMetadata,
+      iv: "ICEiIyQlJicoKSor",
+      ciphertext: "qRjWERjxf2BuOCu9sXSVgJ4ogfmlukG9FZgYeiz+N2pV3oRw50BbrjbRTPEqbH68h06t+rgGD1P+UEkwfYMn7OBy/Tusp9Wsu1rHF4ttY0P5tUFh1JT0erxt+HFHYdjyqvyGQFKjAwslAL4mB/c="
+    }, "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=", "clinician-a")).resolves.toEqual({
+      patientDisplayName: "Synthetic Patient",
+      createdAt: "2026-11-18T00:00:00.000Z",
+      records: []
+    });
   });
 });

@@ -29,6 +29,10 @@ export interface ShareEnvelope {
   ciphertext: string;
 }
 
+export interface AuthorizedGrantMetadata extends ShareMetadata {
+  grantId: string;
+}
+
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -67,6 +71,22 @@ export function validateMetadata(metadata: ShareMetadata, now = new Date()): voi
   const expiry = Date.parse(metadata.expiresAt);
   if (!Number.isFinite(expiry)) throw new Error("Share expiry is invalid.");
   if (expiry <= now.getTime()) throw new Error("Share has expired.");
+}
+
+export function assertEnvelopeMatchesGrant(envelope: ShareEnvelope, grant: AuthorizedGrantMetadata): void {
+  const metadata = envelope.metadata;
+  const envelopeExpiry = Date.parse(metadata.expiresAt);
+  const grantExpiry = Date.parse(grant.expiresAt);
+  if (
+    metadata.patientId !== grant.patientId ||
+    metadata.recipientId !== grant.recipientId ||
+    metadata.objectId !== grant.objectId ||
+    !Number.isFinite(envelopeExpiry) ||
+    !Number.isFinite(grantExpiry) ||
+    envelopeExpiry !== grantExpiry
+  ) {
+    throw new Error("Encrypted share metadata does not match the authorized grant.");
+  }
 }
 
 export async function encryptShare(payload: SharePayload, metadata: ShareMetadata): Promise<{ envelope: ShareEnvelope; key: string }> {

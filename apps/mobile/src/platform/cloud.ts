@@ -27,6 +27,12 @@ export interface ResolvedRecipient {
   organization: string;
 }
 
+export interface RecipientEnrollment {
+  displayName: string;
+  organization: string;
+  acceptingShares: boolean;
+}
+
 export const cloudAuthAvailable = Boolean(publishableKey);
 
 function client() {
@@ -55,8 +61,9 @@ export async function verifyEmailOtp(email: string, token: string): Promise<Clou
 export async function uploadEncryptedShare(session: CloudSession, recipientId: string, records: PatientRecord[]): Promise<string> {
   if (!uuidPattern.test(session.userId) || !uuidPattern.test(recipientId)) throw new Error("Patient and recipient must be authenticated Supabase account IDs.");
   if (records.length === 0) throw new Error("Select at least one record.");
+  if (records.some((record) => record.status !== "confirmed")) throw new Error("Only confirmed records can be shared.");
   const objectId = Crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + 23 * 60 * 60 * 1000 + 55 * 60 * 1000).toISOString();
   const encrypted = await encryptShareForPlatform(
     {
       patientDisplayName: session.email,
@@ -77,6 +84,20 @@ export async function uploadEncryptedShare(session: CloudSession, recipientId: s
   }
   const viewerOrigin = process.env.EXPO_PUBLIC_CLINICIAN_VIEWER_URL || "https://zoe-clinician-preview.pages.dev";
   return `${viewerOrigin}/?objectId=${encodeURIComponent(objectId)}#${encodeURIComponent(encrypted.key)}`;
+}
+
+export async function saveRecipientEnrollment(session: CloudSession, enrollment: RecipientEnrollment): Promise<void> {
+  const displayName = enrollment.displayName.trim();
+  const organization = enrollment.organization.trim();
+  if (displayName.length < 2 || organization.length < 2) throw new Error("Name and organization are required.");
+  const { error } = await authenticatedClient(session).from("share_recipients").upsert({
+    user_id: session.userId,
+    display_name: displayName,
+    organization,
+    accepting_shares: enrollment.acceptingShares,
+    updated_at: new Date().toISOString()
+  }, { onConflict: "user_id" });
+  if (error) throw error;
 }
 
 export async function resolveShareRecipient(session: CloudSession, recipientId: string): Promise<ResolvedRecipient> {
