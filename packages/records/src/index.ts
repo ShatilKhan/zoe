@@ -1,5 +1,8 @@
 export type RecordKind = "allergy" | "condition" | "medicine" | "visit" | "note";
-export type RecordSource = "patient-reported" | "photo-transcribed" | "clinician-note";
+
+export function manualRecordKind(fromPrescription = false): RecordKind {
+  return fromPrescription ? "medicine" : "note";
+}export type RecordSource = "patient-reported" | "photo-transcribed" | "clinician-note";
 
 export interface PatientRecord {
   id: string;
@@ -48,9 +51,14 @@ export const SYNTHETIC_RECORDS: PatientRecord[] = [
 ];
 
 const URGENT_PATTERN = /(?:chest pain|cannot breathe|can't breathe|unconscious|severe bleeding|suicid|overdose)/i;
-const GREETING_PATTERN = /^(?:hi|hello|hey|salam|assalamu alaikum|হাই|হ্যালো)[!. ]*$/i;
+const GREETING_PATTERN = /^(?:hi|hello|hey|salam|assalamu alaikum|হাই|হ্যালো|সালাম)[!. ]*$/i;
+const ALLERGY_LIST = /^(?:(?:what (?:are|were)|list|show|tell me about|do i have)\s+(?:(?:me|my|any|recorded|confirmed|the)\s+)*)?allerg(?:y|ies)[?.! ]*$/i;
+const RECORD_FOLLOW_UP = /^(?:what (?:does|did) (?:it|that|the record) say|where (?:did that come from|is that from)|show (?:me )?the source|tell me more(?: about (?:it|that))?)[?.! ]*$/i;
+const ALLERGY_QUERY = /\ballerg(?:y|ies|ic)\b/i;
+const ALLERGY_QUERY_WORDS = new Set(["allergy", "allergic", "check", "did", "ever", "report", "reported", "you", "know", "saved", "recorded", "confirmed", "list", "please"]);
+const QUERY_STOP_WORDS = new Set(["what", "are", "the", "about", "that", "does", "have", "taking", "tell", "any", "for", "and", "you", "can", "could", "would", "with", "from", "show", "record", "records"]);
 
-export function answerFromRecords(question: string, records: PatientRecord[]): RecordAnswer {
+export function answerFromRecords(question: string, records: PatientRecord[], previousSources: readonly string[] = []): RecordAnswer {
   const query = question.trim();
   if (URGENT_PATTERN.test(query)) {
     return {
@@ -70,9 +78,24 @@ export function answerFromRecords(question: string, records: PatientRecord[]): R
     };
   }
 
-  const terms = query.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u).filter((term) => term.length > 2);
-  const matches = records
-    .filter((record) => record.status === "confirmed")
+  const terms = query.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u)
+    .filter((term) => term.length > 2 && !QUERY_STOP_WORDS.has(term))
+    .map((term) => term === "allergies" ? "allergy" : term === "medicines" ? "medicine" : term);
+  const confirmed = records.filter((record) => record.status === "confirmed");
+  const allergyList = ALLERGY_LIST.test(query);
+  const namedAllergy = !allergyList && ALLERGY_QUERY.test(query);
+  const substance = terms.filter((term) => !ALLERGY_QUERY_WORDS.has(term));
+  const matches = allergyList
+    ? confirmed.filter((record) => record.kind === "allergy")
+    : RECORD_FOLLOW_UP.test(query)
+      ? confirmed.filter((record) => previousSources.includes(record.id))
+      : namedAllergy
+        ? confirmed.filter((record) => {
+          if (record.kind !== "allergy" || !substance.length) return false;
+          const nameWords = record.title.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u);
+          return substance.every((word) => nameWords.includes(word));
+        })
+        : confirmed
     .map((record) => ({
       record,
       score: terms.reduce((score, term) => score + (`${record.kind} ${record.title} ${record.detail}`.toLocaleLowerCase().includes(term) ? 1 : 0), 0)
@@ -84,7 +107,9 @@ export function answerFromRecords(question: string, records: PatientRecord[]): R
 
   if (matches.length === 0) {
     return {
-      text: "I could not find a confirmed record that answers that. You can add a record or ask with the medicine or condition name.",
+      text: allergyList
+        ? "I found no confirmed allergy records. That does not mean you have no allergies."
+        : "I could not find a confirmed record that answers that. You can add a record or ask with the medicine or condition name.",
       citations: [],
       gaps: ["No matching confirmed record."],
       urgent: false
