@@ -237,6 +237,9 @@ function Home({ records, setScreen, vaultMode, syntheticPreview }: { records: Pa
         </View>
       </View>
       <Text style={styles.groupTitle}>Your record</Text>
+      {confirmed.length === 0 ? (
+        <View style={styles.notice}><Text style={styles.cardCopy}>No confirmed records yet. Add a record or import a prescription photo to get started.</Text></View>
+      ) : null}
       <View style={styles.metricRow}>
         <View style={styles.metric}><Text style={styles.metricValue}>{confirmed.length}</Text><Text style={styles.metricLabel}>confirmed facts</Text></View>
         <View style={styles.metric}><Text style={styles.metricValue}>{confirmed.filter((item) => item.kind === "medicine").length}</Text><Text style={styles.metricLabel}>medicines</Text></View>
