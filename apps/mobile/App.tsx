@@ -450,21 +450,26 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
 
 interface ChatMessage { id: string; role: "patient" | "zoe"; text: string; sources?: string[]; }
 
-function Ask({ records }: { records: PatientRecord[] }) {
+function Ask({ records, setScreen }: { records: PatientRecord[]; setScreen: (screen: Screen) => void }) {
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([{ id: "welcome", role: "zoe", text: "Ask about a confirmed record, a medicine name, or a meal. I will show what I used and what is missing." }]);
   const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [lastQuestion, setLastQuestion] = useState("");
   const speech = useOfflineSpeechComposer(draft, setDraft);
 
-  function send() {
-    const question = draft.trim();
+  function send(questionOverride?: string) {
+    const question = (questionOverride ?? draft).trim();
     if (!question || busy) return;
     setDraft("");
     setBusy(true);
+    setFailed(false);
+    setLastQuestion(question);
     const patientMessage: ChatMessage = { id: `q-${Date.now()}`, role: "patient", text: question };
     setMessages((current) => [...current, patientMessage]);
     setTimeout(() => {
-      const foods = matchFood(question);
+      try {
+        const foods = matchFood(question);
       let response: ChatMessage;
       if (foods.length > 0) {
         const grams = parseExplicitGrams(question);
@@ -480,8 +485,22 @@ function Ask({ records }: { records: PatientRecord[] }) {
         response = { id: `a-${Date.now()}`, role: "zoe", text: [answer.text, ...answer.gaps].join("\n\n"), sources: answer.citations.map((citation) => citation.label) };
       }
       setMessages((current) => [...current, response]);
+      setFailed(false);
       setBusy(false);
+    } catch {
+      setFailed(true);
+      setMessages((current) => [...current, { id: `a-${Date.now()}`, role: "zoe", text: "I could not complete that answer. You can retry or search your records.", sources: [] }]);
+      setBusy(false);
+    }
     }, 280);
+  }
+
+  function retry() {
+    if (lastQuestion) send(lastQuestion);
+  }
+
+  function searchRecords() {
+    setScreen("records");
   }
 
   return (
@@ -499,9 +518,15 @@ function Ask({ records }: { records: PatientRecord[] }) {
       <View style={styles.composer}>
         <Pressable accessibilityRole="button" accessibilityLabel={speech.state.listening ? "Finish dictation" : "Dictate question offline"} accessibilityState={{ busy: speech.state.listening }} onPress={() => void speech.toggle()} style={[styles.iconButton, speech.state.listening && styles.selectRowActive]}><AppIcon name={speech.state.listening ? "square" : "mic"} size={20} color={colors.ink} /></Pressable>
         <TextInput accessibilityLabel="Question" value={draft} onChangeText={speech.updateDraft} placeholder="Ask about your record or meal" placeholderTextColor={colors.muted} multiline style={styles.composerInput} />
-        <Pressable accessibilityRole="button" accessibilityLabel="Send question" onPress={send} style={styles.sendButton}><AppIcon name="send" size={20} color={colors.paper} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Send question" onPress={() => void send()} style={styles.sendButton}><AppIcon name="send" size={20} color={colors.paper} /></Pressable>
       </View>
       <Text accessibilityLiveRegion="polite" style={styles.speechStatus}>{speech.state.message}</Text>
+      {failed ? (
+        <View style={styles.actionRow}>
+          <Button label="Retry answer" variant="secondary" onPress={() => { void retry(); }} />
+          <Button label="Search records" variant="ghost" onPress={() => void searchRecords()} />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -744,7 +769,7 @@ export default function App() {
 
   const body = useMemo(() => {
     if (screen === "records") return <Records records={records} onSave={saveRecord} />;
-    if (screen === "ask") return <Ask records={records} />;
+    if (screen === "ask") return <Ask records={records} setScreen={setScreen} />;
     if (screen === "wellness") return <Wellness />;
     return <Home records={records} setScreen={setScreen} vaultMode={vault?.mode ?? "web-preview"} syntheticPreview={!cloudSession} />;
   }, [cloudSession, records, screen, vault]);
