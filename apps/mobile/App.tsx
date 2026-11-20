@@ -1,4 +1,4 @@
-import { type ComponentProps, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ComponentProps, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -674,6 +674,28 @@ function Navigation({ screen, setScreen, expanded }: { screen: Screen; setScreen
   })}</View>;
 }
 
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; message: string }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message || "Something went wrong." };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: colors.cream }}>
+          <Text style={styles.sectionTitle}>Something went wrong</Text>
+          <Text style={styles.cardCopy}>{this.state.message}</Text>
+          <Button label="Reload" onPress={() => this.setState({ hasError: false, message: "" })} />
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const { width } = useWindowDimensions();
   const expanded = width >= 760;
@@ -795,6 +817,7 @@ export default function App() {
   }} /></>;
   if (access === "unlocking") return <View style={styles.loading}><ActivityIndicator size="large" color={colors.moss} /><Text style={styles.cardCopy}>Opening private vault…</Text></View>;
   return (
+    <ErrorBoundary>
     <SafeAreaView style={styles.shell}>
       <StatusBar style="dark" />
       <View style={styles.sessionBar}><Text numberOfLines={1} style={styles.sessionLabel}>{cloudSession ? `Signed in · ${maskAccountEmail(cloudSession.email)}` : "Synthetic preview"}</Text><View style={styles.sessionActions}>{vault?.protection === "biometric" ? <Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => { setError(""); setMigrationRecoveryRequired(false); setAccess("migration"); }}><Text style={styles.lockText}>Use passphrase</Text></Pressable> : null}<Pressable accessibilityRole="button" style={styles.sessionButton} onPress={() => void signOut()}><AppIcon name="lock" size={15} color={colors.ink} /><Text style={styles.lockText}>Lock vault</Text></Pressable></View></View>
@@ -804,6 +827,7 @@ export default function App() {
       </View>
       {!expanded ? <Navigation screen={screen} setScreen={setScreen} expanded={false} /> : null}
     </SafeAreaView>
+    </ErrorBoundary>
   );
 }
 
