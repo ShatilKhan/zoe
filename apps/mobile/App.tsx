@@ -236,11 +236,6 @@ function Home({ records, setScreen, vaultMode, syntheticPreview }: { records: Pa
           <Text style={styles.cardCopy}>{vaultMode === "sqlcipher" ? "SQLCipher vault opened and verified." : "Browser preview uses synthetic local storage. Native builds fail closed without SQLCipher."}</Text>
         </View>
       </View>
-      <View style={styles.signalCard}>
-        <View style={styles.signalHeading}><AppIcon name="activity" size={21} color={colors.accent} /><Text style={styles.signalTitle}>Check pulse and breathing</Text></View>
-        <Text style={styles.signalCopy}>Use the front camera for a private wellness check. Processed in memory. Zoe does not save camera frames.</Text>
-        <Button label="Start a wellness check" variant="secondary" onPress={() => setScreen("wellness")} />
-      </View>
       <Text style={styles.groupTitle}>Your record</Text>
       <View style={styles.metricRow}>
         <View style={styles.metric}><Text style={styles.metricValue}>{confirmed.length}</Text><Text style={styles.metricLabel}>confirmed facts</Text></View>
@@ -249,6 +244,11 @@ function Home({ records, setScreen, vaultMode, syntheticPreview }: { records: Pa
       <View style={styles.quickGrid}>
         <Pressable accessibilityRole="button" onPress={() => setScreen("records")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><AppIcon name="plus" size={22} color={colors.moss} /><Text style={styles.cardTitle}>Add record</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={() => setScreen("ask")} style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}><AppIcon name="message-circle" size={22} color={colors.moss} /><Text style={styles.cardTitle}>Ask Zoe</Text></Pressable>
+      </View>
+      <View style={[styles.signalCard, { marginTop: 8 }]}>
+        <View style={styles.signalHeading}><AppIcon name="activity" size={21} color={colors.accent} /><Text style={styles.signalTitle}>Check pulse and breathing</Text></View>
+        <Text style={styles.signalCopy}>Use the front camera for a private wellness check. Processed in memory. Zoe does not save camera frames.</Text>
+        <Button label="Start a wellness check" variant="secondary" onPress={() => setScreen("wellness")} />
       </View>
     </ScrollView>
   );
