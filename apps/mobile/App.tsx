@@ -4,6 +4,7 @@ import {
   Animated,
   AppState,
   Image,
+  KeyboardAvoidingView,
   PermissionsAndroid,
   Platform,
   Pressable,
@@ -126,7 +127,7 @@ function PassphraseAccess({ accountId, accountHint, setup, error, onSubmit, onCa
     if (delay > 0) setLocalError(`Too many failed attempts. Wait ${Math.ceil(delay / 1000)} seconds. This delay does not protect a copied database from offline guessing.`);
   }, [error, limiter]);
 
-  return <SafeAreaView style={styles.accessPage}><View style={styles.loginCard}>
+  return <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.accessPage}><View style={styles.loginCard}>
     <Text style={styles.contextLabel}>{setup ? "New device-bound vault" : "Private vault"}</Text>
     <Text style={styles.sectionTitle}>{setup ? "Create a strong passphrase" : "Enter your vault passphrase"}</Text>
     <Text style={styles.supporting}>{setup ? "Zoe combines this passphrase with a random account-specific secret held by Android Keystore. The passphrase alone cannot open a copied database." : accountHint ? `Unlock the private vault for ${accountHint}. The passphrase is processed only on this device.` : "Unlock your private vault. The passphrase is processed only on this device."}</Text>
@@ -136,7 +137,7 @@ function PassphraseAccess({ accountId, accountHint, setup, error, onSubmit, onCa
     {localError || error ? <Text style={styles.error}>{localError || error}</Text> : null}
     <Button label={setup ? "Create encrypted vault" : "Unlock encrypted vault"} onPress={submit} disabled={!passphrase || (setup && !confirmation)} />
     <Button label={cancelLabel} variant="ghost" onPress={onCancel} />
-  </View></SafeAreaView>;
+  </View></KeyboardAvoidingView>;
 }
 
 function Intro({ onDone }: { onDone: () => void }) {
@@ -369,8 +370,8 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <Header title="Health record" subtitle="Every fact shows its source. Draft text never becomes a record without your review." />
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.flex}>
+    <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <View style={styles.actionRow}>
         <Button label="Add manually" onPress={() => setShowForm((value) => !value)} />
         <Button label="Import Rx photo" variant="secondary" onPress={() => void choosePrescription()} />
@@ -427,6 +428,7 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
         </View>
       ))}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
