@@ -12,6 +12,22 @@ import java.io.FileOutputStream
 class PrescriptionMaskModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PrescriptionMask")
+    AsyncFunction("decodeImageToRgb") { inputPath: String ->
+      val source = BitmapFactory.decodeFile(inputPath) ?: throw IllegalArgumentException("Image cannot be decoded")
+      val width = source.width
+      val height = source.height
+      val pixels = IntArray(width * height)
+      source.getPixels(pixels, 0, width, 0, 0, width, height)
+      val rgb = ByteArray(width * height * 3)
+      for (i in pixels.indices) {
+        val pixel = pixels[i]
+        rgb[i * 3] = ((pixel shr 16) and 0xFF).toByte()
+        rgb[i * 3 + 1] = ((pixel shr 8) and 0xFF).toByte()
+        rgb[i * 3 + 2] = (pixel and 0xFF).toByte()
+      }
+      source.recycle()
+      mapOf("data" to rgb, "width" to width, "height" to height)
+    }
     AsyncFunction("createMaskedCopy") { inputPath: String, outputPath: String, masks: List<Map<String, Double>> ->
       val source = BitmapFactory.decodeFile(inputPath) ?: throw IllegalArgumentException("Image cannot be decoded")
       val output = source.copy(Bitmap.Config.ARGB_8888, true) ?: throw IllegalStateException("Image cannot be copied")
