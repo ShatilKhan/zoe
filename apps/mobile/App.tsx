@@ -396,8 +396,13 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
               ))}
               {ocrRegion ? (
                 <View style={styles.ocrRegion}>
-                  <Text style={styles.cardTitle}>Suggested Rx region</Text>
-                  <Text style={styles.cardCopy}>Left: {ocrRegion.left}, Top: {ocrRegion.top}, Right: {ocrRegion.right}, Bottom: {ocrRegion.bottom}</Text>
+                  <Text style={styles.cardTitle}>Suggested Rx region (adjust if needed)</Text>
+                  <View style={styles.chips}>
+                    <Field label="Left" value={String(ocrRegion.left)} onChangeText={(v) => setOcrRegion((r) => r ? { ...r, left: Number(v) || 0 } : r)} placeholder="0" />
+                    <Field label="Top" value={String(ocrRegion.top)} onChangeText={(v) => setOcrRegion((r) => r ? { ...r, top: Number(v) || 0 } : r)} placeholder="0" />
+                    <Field label="Right" value={String(ocrRegion.right)} onChangeText={(v) => setOcrRegion((r) => r ? { ...r, right: Number(v) || 0 } : r)} placeholder="0" />
+                    <Field label="Bottom" value={String(ocrRegion.bottom)} onChangeText={(v) => setOcrRegion((r) => r ? { ...r, bottom: Number(v) || 0 } : r)} placeholder="0" />
+                  </View>
                   <Text style={styles.finePrint}>Adjust the region if the suggestion is wrong. All fields remain unknown until you confirm them.</Text>
                 </View>
               ) : null}
