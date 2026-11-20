@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 class PresageSensorModule : Module() {
   private val state = PresageSensorStateMachine()
   private var sdk: SmartSpectraSdk? = null
+  private var runtimeApiKey: String? = null
   private var observing = false
 
   private val processingObserver = Observer<ProcessingStatus> { status ->
@@ -51,10 +52,10 @@ class PresageSensorModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PresageSensor")
     Events("onStateChange")
-    Constant("configured") { BuildConfig.PRESAGE_API_KEY.isNotBlank() }
+    Constant("configured") { BuildConfig.PRESAGE_API_KEY.isNotBlank() || runtimeApiKey != null }
 
     OnCreate {
-      if (BuildConfig.PRESAGE_API_KEY.isNotBlank()) state.keyAvailable(hasCameraPermission())
+      if (BuildConfig.PRESAGE_API_KEY.isNotBlank() || runtimeApiKey != null) state.keyAvailable(hasCameraPermission())
     }
 
     AsyncFunction("getStatus") {
@@ -67,6 +68,13 @@ class PresageSensorModule : Module() {
       state.consent(granted)
       emitState()
       if (!granted) stopInternal("Capture stopped because camera consent was withdrawn.")
+      state.snapshot.toMap()
+    }
+
+    AsyncFunction("setApiKey") Coroutine { apiKey: String ->
+      runtimeApiKey = apiKey.trim()
+      if (runtimeApiKey.isNotBlank()) state.keyAvailable(hasCameraPermission())
+      emitState()
       state.snapshot.toMap()
     }
 
@@ -121,9 +129,10 @@ class PresageSensorModule : Module() {
 
   private fun initializeSdkAfterConsent(): SmartSpectraSdk {
     sdk?.let { return it }
-    check(BuildConfig.PRESAGE_API_KEY.isNotBlank()) { "SmartSpectra is compiled in, but PRESAGE_API_KEY was not supplied through the secure Android build environment." }
+    val apiKey = runtimeApiKey.takeIf { it.isNotBlank() } ?: BuildConfig.PRESAGE_API_KEY
+    check(apiKey.isNotBlank()) { "SmartSpectra is compiled in, but no PRESAGE_API_KEY was supplied through build environment or broker." }
     val config = SmartSpectraConfig().apply {
-      apiKey = BuildConfig.PRESAGE_API_KEY
+      apiKey = apiKey
       enableTelemetry = false
       imageOutputEnabled = false
       requestedMetrics = listOf(MetricType.PULSE_RATE, MetricType.BREATHING_RATE)
@@ -158,7 +167,7 @@ class PresageSensorModule : Module() {
   }
 
   private fun requireConfiguredSdk(): SmartSpectraSdk {
-    return sdk ?: throw IllegalStateException("SmartSpectra is compiled in, but PRESAGE_API_KEY was not supplied through the secure Android build environment.")
+    return sdk ?: throw IllegalStateException("SmartSpectra is compiled in, but no API key was supplied.")
   }
 
   private fun hasCameraPermission(): Boolean = ContextCompat.checkSelfPermission(
@@ -178,26 +187,10 @@ class PresageSensorModule : Module() {
     if (configuredSdk == null) {
       if (state.snapshot.configured) state.stopped(reason)
       if (emit) emitState()
-      return
-    }
-    val outcome = PresageCaptureRelease(
-      stopSdk = { configuredSdk.stop() },
-      resetSdk = { configuredSdk.reset() },
-      isIdle = { configuredSdk.processingStatus.value == ProcessingStatus.IDLE },
-    ).release(reason)
-    if (outcome.stoppedCleanly) {
-      state.stopped(reason)
     } else {
-      state.error(
-        code = "camera_release_failed",
-        message = outcome.message,
-        retryable = outcome.cameraReleased,
-      )
+      configuredSdk.stop()
+      sdk = null
+      state.stopped(reason)
+      if (emit) emitState()
     }
-    if (emit) emitState()
   }
-
-  private fun emitState() {
-    sendEvent("onStateChange", state.snapshot.toMap())
-  }
-}

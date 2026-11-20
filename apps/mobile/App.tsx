@@ -40,6 +40,7 @@ import { recordsForOpenedVault } from "./src/platform/recordBootstrap";
 import { lockThenClear, migrationBackAction, migrationRequiresCompletion } from "./src/platform/appLifecycle";
 import { useOfflineSpeechComposer } from "./src/platform/useOfflineSpeechComposer";
 import { homePresentation, maskAccountEmail } from "./src/platform/patientPresentation";
+import { fetchPresageKeyFromBroker, hasBrokerKey } from "./src/platform/presageBroker";
 
 type Screen = "home" | "records" | "ask" | "wellness";
 type AccessState = "intro" | "login" | "passphrase" | "migration" | "unlocking" | "ready";
@@ -542,7 +543,7 @@ function Ask({ records, setScreen }: { records: PatientRecord[]; setScreen: (scr
   );
 }
 
-function Wellness() {
+function Wellness({ clerkToken }: { clerkToken: string }) {
   const [sensor, setSensor] = useState<PresageSensorState>(PresageSensor.unavailableState);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -608,6 +609,13 @@ function Wellness() {
         buttonNegative: "Not now",
       });
       if (permission !== PermissionsAndroid.RESULTS.GRANTED) throw new Error("Camera permission was not granted. No capture started.");
+
+      // Fetch broker key if PresageSensor is not already configured with a build-time key
+      if (!sensor.configured && !hasBrokerKey()) {
+        const brokerKey = await fetchPresageKeyFromBroker(clerkToken);
+        await PresageSensor.setApiKey(brokerKey);
+      }
+
       setSensor(await PresageSensor.initialize());
       setSensor(await PresageSensor.start());
     } catch (caught) {
@@ -803,7 +811,7 @@ export default function App() {
   const body = useMemo(() => {
     if (screen === "records") return <Records records={records} onSave={saveRecord} />;
     if (screen === "ask") return <Ask records={records} setScreen={setScreen} />;
-    if (screen === "wellness") return <Wellness />;
+    if (screen === "wellness") return <Wellness clerkToken={cloudSession?.accessToken ?? ""} />;
     return <Home records={records} setScreen={setScreen} vaultMode={vault?.mode ?? "web-preview"} syntheticPreview={!cloudSession} />;
   }, [cloudSession, records, screen, vault]);
 

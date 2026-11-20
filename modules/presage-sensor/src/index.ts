@@ -32,6 +32,7 @@ declare class PresageSensorNativeModule extends NativeModule<PresageSensorEvents
   configured: boolean;
   getStatus(): Promise<PresageSensorState>;
   setConsent(granted: boolean): Promise<PresageSensorState>;
+  setApiKey(apiKey: string): Promise<PresageSensorState>;
   initialize(): Promise<PresageSensorState>;
   start(): Promise<PresageSensorState>;
   stop(): Promise<PresageSensorState>;
@@ -66,6 +67,10 @@ const PresageSensor = {
   async setConsent(granted: boolean): Promise<PresageSensorState> {
     if (!nativeModule) return unavailableState;
     return nativeModule.setConsent(granted);
+  },
+  async setApiKey(apiKey: string): Promise<PresageSensorState> {
+    if (!nativeModule) return unavailableState;
+    return nativeModule.setApiKey(apiKey);
   },
   async start(): Promise<PresageSensorState> {
     if (!nativeModule) throw new Error(unavailableState.reason ?? "SmartSpectra native module unavailable.");
