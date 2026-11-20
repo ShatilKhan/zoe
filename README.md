@@ -11,18 +11,6 @@ Zoe is an Android-first, patient-controlled health-history app built for the [Pr
 Solid arrows are encrypted/authenticated calls. Dashed arrows are device-local only. Nothing crossing the device boundary is readable health data.
 
 ```mermaid
----
-config:
-  theme: base
-  themeVariables:
-    primaryColor: "#E9F1D9"
-    primaryTextColor: "#203A31"
-    primaryBorderColor: "#2F5D4F"
-    lineColor: "#2F5D4F"
-    secondaryColor: "#DCEBB0"
-    tertiaryColor: "#F6F6F0"
-    fontSize: 14px
----
 flowchart LR
     patient([Patient])
 
@@ -90,21 +78,21 @@ flowchart LR
 
 ```mermaid
 sequenceDiagram
-    participant App as Patient app
-    participant EF as patient-ciphertext (Edge)
+    participant App as PatientApp
+    participant EF as CiphertextFunction
     participant Inf as Infisical
-    participant DB as Supabase Postgres
-    participant ST as Private Storage
+    participant DB as SupabaseDB
+    participant ST as Storage
 
-    App->>App: Encrypt file with fresh random key (AES-GCM)
-    App->>EF: wrap(objectId, rev, file key, ciphertext) + Clerk JWT
-    EF->>EF: Verify JWT (JWKS) + owner check
+    App->>App: Encrypt file with fresh random key
+    App->>EF: wrap - objectId, rev, key, ciphertext, JWT
+    EF->>EF: Verify JWT via JWKS and owner check
     EF->>Inf: Fetch ZOE_WRAP_KEY_V1
-    EF->>EF: Wrap file key (PBKDF2 → AES-GCM)
-    EF->>ST: Store ciphertext (opaque path)
-    EF->>DB: Store wrapped key + metadata
-    EF-->>App: objectId + revision (no plaintext key retained)
-    Note over App,ST: Storage sees only ciphertext; no medical text, filenames, or keys
+    EF->>EF: Wrap file key with PBKDF2 and AES-GCM
+    EF->>ST: Store ciphertext at opaque path
+    EF->>DB: Store wrapped key and metadata
+    EF-->>App: Return objectId and revision only
+    Note over App,ST: Storage receives ciphertext only, never records or keys
 ```
 
 ---
