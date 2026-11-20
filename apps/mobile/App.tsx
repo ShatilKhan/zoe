@@ -426,6 +426,9 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
         </View>
       ) : null}
       <Text style={styles.groupTitle}>Confirmed</Text>
+      {records.length === 0 ? (
+        <View style={styles.notice}><Text style={styles.cardCopy}>No confirmed records yet. Add one manually or import a prescription photo.</Text></View>
+      ) : null}
       {records.map((record) => (
         <Pressable key={record.id} accessibilityRole="button" accessibilityLabel={`View ${record.title}`} onPress={() => { setSelectedRecord(record); setCorrecting(false); }} style={({ pressed }) => [styles.recordCard, pressed && styles.pressed]}>
           <View style={styles.recordTop}><Text style={styles.kind}>{record.kind}</Text><Text style={styles.source}>{record.source}</Text></View>
