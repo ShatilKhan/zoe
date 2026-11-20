@@ -626,8 +626,8 @@ function Wellness() {
       <Header title="Wellness check" subtitle="Check pulse and breathing with your front camera. These signals are not a diagnosis." />
       <View style={styles.consentCard}>
         <View style={styles.wellnessIcon}><AppIcon name="camera" size={26} color={colors.ink} /></View>
-        <Text style={styles.sectionTitle}>Before you start</Text>
-        <Text style={styles.cardCopy}>Zoe uses the front camera only during this check. Processed in memory. Zoe does not save camera frames.</Text>
+        <Text style={styles.sectionTitle}>Wellness check</Text>
+        <Text style={styles.cardCopy}>Front camera, processed in memory. No frames saved.</Text>
         <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: consent }} disabled={busy} onPress={() => void toggleConsent()} style={[styles.selectRow, consent && styles.selectRowActive]}>
           <CheckMark checked={consent} /><Text style={styles.cardCopy}>Allow camera use for this wellness check.</Text>
         </Pressable>
