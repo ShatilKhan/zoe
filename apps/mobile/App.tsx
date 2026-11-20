@@ -263,6 +263,8 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
   const [imageUri, setImageUri] = useState("");
   const [notice, setNotice] = useState("");
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<PatientRecord | null>(null);
+  const [correcting, setCorrecting] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<"idle" | "running" | "done" | "failed">("idle");
   const [ocrLines, setOcrLines] = useState<{ text: string; confidence: number }[]>([]);
   const [ocrError, setOcrError] = useState("");
@@ -420,13 +422,27 @@ function Records({ records, onSave }: { records: PatientRecord[]; onSave: (recor
       ) : null}
       <Text style={styles.groupTitle}>Confirmed</Text>
       {records.map((record) => (
-        <View key={record.id} style={styles.recordCard}>
+        <Pressable key={record.id} accessibilityRole="button" accessibilityLabel={`View ${record.title}`} onPress={() => { setSelectedRecord(record); setCorrecting(false); }} style={({ pressed }) => [styles.recordCard, pressed && styles.pressed]}>
           <View style={styles.recordTop}><Text style={styles.kind}>{record.kind}</Text><Text style={styles.source}>{record.source}</Text></View>
           <Text style={styles.cardTitle}>{record.title}</Text>
           <Text style={styles.cardCopy}>{record.detail}</Text>
           <Text style={styles.date}>{new Date(record.recordedAt).toLocaleDateString()} · patient</Text>
-        </View>
+        </Pressable>
       ))}
+      {selectedRecord ? (
+        <View style={styles.formCard}>
+          <Text style={styles.sectionTitle}>Record detail</Text>
+          <View style={styles.recordTop}><Text style={styles.kind}>{selectedRecord.kind}</Text><Text style={styles.source}>{selectedRecord.source}</Text></View>
+          <Text style={styles.cardTitle}>{selectedRecord.title}</Text>
+          <Text style={styles.cardCopy}>{selectedRecord.detail}</Text>
+          <Text style={styles.date}>{new Date(selectedRecord.recordedAt).toLocaleDateString()} · {selectedRecord.author} · {selectedRecord.status}</Text>
+          <Text style={styles.finePrint}>Source: {selectedRecord.source}. A correction creates a new record; the original stays unchanged.</Text>
+          {!correcting ? (
+            <Button label="Correct this record" variant="secondary" onPress={() => { setCorrecting(true); setTitle(selectedRecord.title); setDetail(selectedRecord.detail); setKind(selectedRecord.kind); setShowForm(true); }} />
+          ) : null}
+          <Button label="Close detail" variant="ghost" onPress={() => { setSelectedRecord(null); setCorrecting(false); }} />
+        </View>
+      ) : null}
     </ScrollView>
     </KeyboardAvoidingView>
   );
