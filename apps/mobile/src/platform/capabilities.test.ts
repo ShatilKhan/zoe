@@ -5,7 +5,7 @@ describe("SmartSpectra capability", () => {
   it("is unavailable when the Android build has no secure SDK key", () => {
     expect(smartSpectraCapability(true, false)).toEqual({
       available: false,
-      reason: "This build does not contain the required secure SmartSpectra key.",
+      reason: "This build does not contain the required secure SmartSpectra key and no QA broker is configured.",
     });
   });
 
