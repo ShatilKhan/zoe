@@ -36,6 +36,55 @@ flowchart TB
   I --> B
 ```
 
+### Full system context
+
+```mermaid
+flowchart LR
+  subgraph Client["Client"]
+    M["Expo mobile (Android)"]
+    CLERK["Clerk (IdP)"]
+  end
+
+  subgraph Service["FastAPI Cloud — services/ai"]
+    GW["FastAPI app<br/>JWT verify + rate limit"]
+    LP["LlamaParse client<br/>do_not_cache=true"]
+    PII["newmean PII middleware<br/>text redaction"]
+    AG["LangChain create_agent<br/>response_format=Pydantic"]
+    CF["ChatOpenAI adapter<br/>CF base_url"]
+  end
+
+  subgraph Providers["External providers"]
+    LPC[("LlamaParse cloud<br/>agentic OCR / OCRia-1")]
+    WAI[("Cloudflare Workers AI<br/>ZDR text model")]
+  end
+
+  subgraph DataStores["Data"]
+    DS[("Redacted handwriting dataset<br/>eval fixtures only")]
+    SB[("Supabase patient backend<br/>ciphertext bucket + QA broker")]
+  end
+
+  subgraph Delivery["Build and deploy"]
+    GH["GitHub Actions CI"]
+    SECRETS["Secrets<br/>FASTAPI_CLOUD_TOKEN, LLAMA_CLOUD_API_KEY, CF_AI_TOKEN"]
+  end
+
+  CLERK -->|JWT| M
+  M -->|prescription image + JWT| GW
+  GW -->|upload| LP
+  LP -->|parse request| LPC
+  LPC -->|markdown + structured meds| PII
+  PII -->|redacted prompt and tool text| AG
+  AG -->|model call| CF
+  CF -->|chat completions| WAI
+  WAI -->|answer + citations| AG
+  AG -->|structured response| M
+  DS -.->|fixtures in tests only| AG
+  M -.->|existing records path| SB
+  SECRETS --> GH
+  GH -->|uv sync, pytest, prefetch PII model| GW
+  GH -->|fastapi cloud deploy| GW
+```
+
 ## 3. Components
 
 | Slot | Tech | Notes |
