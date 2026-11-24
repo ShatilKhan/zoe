@@ -1,6 +1,6 @@
 # Zoe AI service — architecture design
 
-Status: proposed, not implemented. Owner approved research + this design on 2026-11-24.
+Status: initial implementation complete in `services/ai` (2026-11-24). Owner approved research + this design on 2026-11-24. Open items in section 9 remain.
 Branch: `main` (patient-only). Clinician sharing is a later concern on `clinician-sharing`.
 Scope: hackathon MVP. Working implementation matters more than production hardening.
 

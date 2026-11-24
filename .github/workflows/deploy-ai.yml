@@ -1,0 +1,37 @@
+name: Deploy Zoe AI service
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/ai/**"
+      - ".github/workflows/deploy-ai.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        working-directory: services/ai
+        run: uv sync --locked
+
+      - name: Run service tests
+        working-directory: services/ai
+        run: uv run pytest -q
+
+      - name: Prefetch PII model
+        working-directory: services/ai
+        env:
+          NEWMEAN_PII_CACHE: ${{ github.workspace }}/services/ai/models
+        run: uv run python -m newmean_pii download --size medium
+
+      - name: Deploy to FastAPI Cloud
+        working-directory: services/ai
+        env:
+          FASTAPI_CLOUD_TOKEN: ${{ secrets.FASTAPI_CLOUD_TOKEN }}
+        run: uv run fastapi cloud deploy . --app-id ${{ secrets.FASTAPI_CLOUD_APP_ID }} --json --large-file-threshold 101

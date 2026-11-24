@@ -23,3 +23,8 @@ test-results/
 tools/ocr-training/data/
 tools/ocr-training/checkpoints/
 tests/e2e-android/artifacts/
+services/ai/.venv/
+services/ai/models/
+services/ai/.pytest_cache/
+__pycache__/
+*.pyc
